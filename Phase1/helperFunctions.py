@@ -2,6 +2,7 @@ import numpy as np
 import os
 from natsort import natsorted
 from tqdm import tqdm
+import cv2
 
 def sorttxtFiles(path):
     """
@@ -68,3 +69,38 @@ def readFiles(file_names,data_path):
     
     
     return nFeatures,data_list
+
+def getMatches(dl,idxs,n_imgs,id,path):
+    """
+    View the inliers and outliers after performing RANSAC
+    Inputs: dl - the list of indexes of corresponding features
+            idxs - The list of indexes of inliers in dl
+            n_imgs - The number of images taken for performing Sfm
+            id - The current id in the list of matching image pairs
+            path - The path where the images are stored
+    Output: Stored image showing output of RANSAC
+    """
+    i = 1
+    while(id >= n_imgs-1):
+        id = id - n_imgs + 1
+        i +=1
+        n_imgs -= 1
+    j = i + 1 + id
+    img1 = cv2.imread(os.path.join(path,str(i) + ".png"))
+    img2 = cv2.imread(os.path.join(path,str(j) + ".png"))
+    imgs = np.hstack((img1,img2))
+    for idx in range(len(dl)):
+        color1 = (0,0,255)
+        if idx in idxs:
+            color2 = (0,255,0)
+        else:
+            color2 = color1
+        pt1 = (int(float(dl[idx][0])), int(float(dl[idx][1])))
+        pt2 = (int(float(dl[idx][2])) + int(img1.shape[1]), int(float(dl[idx][3])))
+        cv2.line(imgs, pt1, pt2, color2, 1)
+        cv2.circle(imgs, pt1, 2, color1, -1)
+        cv2.circle(imgs, pt2, 2, color1, -1)
+        output_path = os.path.join(path,"RANSAC_Imgs")
+        if not os.path.exists:
+            os.makedirs(output_path)
+        cv2.imwrite(output_path + "pair_" + str(i) + str(j) + ".png",imgs)

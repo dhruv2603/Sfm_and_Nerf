@@ -1,10 +1,16 @@
 import numpy as np
 import os
+import scipy.linalg
 import tqdm
 import argparse
 from natsort import natsorted
+import scipy
 from scipy.optimize import least_squares
 from EstimateFundamentalMatrix import EstimateFundamentalMatrix
+from GetInlierRANSAC import GetInlierRANSAC
+from EssentialMatrixFromFundamentalMatrix import EssentialMatrixFromFundamentalMatrix
+from ExtractCameraPose import ExtractCameraPose
+from DisambiguateCameraPose import DisambiguateCameraPose
 from helperFunctions import *
 
 
@@ -43,12 +49,21 @@ def main():
     #     os.makedirs(RESULTS_DIR)
 
     CALIBRATION_PATH, matching_files = sorttxtFiles(DATA_DIR)
-        
-    """
-    Estimate the Fundamental Matrix
-    """
+    n = len(matching_files) + 1
     nFeatures, data_list = readFiles(matching_files,DATA_DIR)
-    for dl in data_list:
-        F = EstimateFundamentalMatrix(DATA_DIR)
+    """
+    Compute inliers using RANSAC
+    """
+    for img_n, dl in enumerate(data_list):
+        inliers_dl, idxs = GetInlierRANSAC(dl)
+        getMatches(dl, idxs, n, img_n, DATA_DIR)
+        """
+        Estimate the Fundamental Matrix
+        """
+        F = EstimateFundamentalMatrix(inliers_dl)
+        K = np.loadtxt(CALIBRATION_PATH)
+        E = EssentialMatrixFromFundamentalMatrix(K, F)
+        R_l,C_l = ExtractCameraPose(E)
+        R,C, world_coords = DisambiguateCameraPose(inliers_dl, R_l, C_l)
 if __name__ == "__main__":
     main()
