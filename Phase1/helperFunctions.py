@@ -106,3 +106,65 @@ def getMatches(dl, idxs, n_imgs, id, path):
         if not os.path.exists:
             os.makedirs(output_path)
         cv2.imwrite(output_path + "pair_" + str(i) + str(j) + ".png", imgs)
+
+
+def plotMatches(dl, n_imgs, id, path, projection_1, projection_2, name):
+    i = 1
+    while id >= n_imgs - 1:
+        id = id - n_imgs + 1
+        i += 1
+        n_imgs -= 1
+    j = i + 1 + id
+    img1 = cv2.imread(os.path.join(path, str(i) + ".png"))
+    img2 = cv2.imread(os.path.join(path, str(j) + ".png"))
+    color1 = (0, 0, 255)
+    color2 = (0, 255, 0)
+
+    # Plot points original
+    for idx in range(len(dl)):
+        pt1 = (int(float(dl[idx][0])), int(float(dl[idx][1])))
+        pt2 = (int(float(dl[idx][2])), int(float(dl[idx][3])))
+        cv2.circle(img1, pt1, 2, color1, -1)
+        cv2.circle(img2, pt2, 2, color1, -1)
+
+    for k in range(0, projection_1.shape[1]):
+        projection_image_1 = (int(projection_1[0, k]), int(projection_1[1, k]))
+        projection_image_2 = (int(projection_2[0, k]), int(projection_2[1, k]))
+        cv2.circle(img1, projection_image_1, 2, color2, -1)
+        cv2.circle(img2, projection_image_2, 2, color2, -1)
+
+    output_path = os.path.join(path, "image_projection")
+    os.makedirs(output_path, exist_ok=True)
+    cv2.imwrite(output_path + "/" + name + "_" + "image_1" + ".png", img1)
+    cv2.imwrite(output_path + "/" + name + "_" + "image_2" + ".png", img2)
+    return None
+
+
+def getMatchesNew(dl, idxs, n_imgs, id, path, name):
+    i = 1
+    while id >= n_imgs - 1:
+        id = id - n_imgs + 1
+        i += 1
+        n_imgs -= 1
+    j = i + 1 + id
+
+    img1 = cv2.imread(os.path.join(path, str(i) + ".png"))
+    img2 = cv2.imread(os.path.join(path, str(j) + ".png"))
+    imgs = np.hstack((img1, img2))
+
+    color1 = (0, 0, 255)
+    color2 = (0, 255, 0)
+    for idx in range(len(dl)):
+        if idx in idxs:
+            pt1 = (int(float(dl[idx][0])), int(float(dl[idx][1])))
+            pt2 = (int(float(dl[idx][2])) + int(img1.shape[1]), int(float(dl[idx][3])))
+            cv2.line(imgs, pt1, pt2, color2, 1)
+            cv2.circle(imgs, pt1, 2, color1, -1)
+            cv2.circle(imgs, pt2, 2, color1, -1)
+
+    output_path = os.path.join(path, "images_features")
+    os.makedirs(output_path, exist_ok=True)
+    cv2.imwrite(
+        output_path + "/" + "pair_" + name + "_" + str(i) + str(j) + ".png", imgs
+    )
+    return None
