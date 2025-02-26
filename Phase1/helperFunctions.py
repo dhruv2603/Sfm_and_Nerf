@@ -3,6 +3,7 @@ import os
 from natsort import natsorted
 from tqdm import tqdm
 import cv2
+from matplotlib import pyplot as plt
 
 
 def sorttxtFiles(path):
@@ -124,20 +125,74 @@ def plotMatches(dl, n_imgs, id, path, projection_1, projection_2, name):
     for idx in range(len(dl)):
         pt1 = (int(float(dl[idx][0])), int(float(dl[idx][1])))
         pt2 = (int(float(dl[idx][2])), int(float(dl[idx][3])))
-        cv2.circle(img1, pt1, 2, color1, -1)
-        cv2.circle(img2, pt2, 2, color1, -1)
+        color = tuple(np.random.randint(0, 255, 3).tolist())
+        cv2.circle(img1, pt1, 2, color, -1)
+        cv2.circle(img2, pt2, 2, color, -1)
 
     for k in range(0, projection_1.shape[1]):
         projection_image_1 = (int(projection_1[0, k]), int(projection_1[1, k]))
         projection_image_2 = (int(projection_2[0, k]), int(projection_2[1, k]))
-        cv2.circle(img1, projection_image_1, 2, color2, -1)
-        cv2.circle(img2, projection_image_2, 2, color2, -1)
+        color = tuple(np.random.randint(0, 255, 3).tolist())
+        cv2.circle(img1, projection_image_1, 2, color, -1)
+        cv2.circle(img2, projection_image_2, 2, color, -1)
 
     output_path = os.path.join(path, "image_projection")
     os.makedirs(output_path, exist_ok=True)
     cv2.imwrite(output_path + "/" + name + "_" + "image_1" + ".png", img1)
     cv2.imwrite(output_path + "/" + name + "_" + "image_2" + ".png", img2)
+
+    # f, axis = plt.subplots(1, 2, figsize=(15, 8))
+    # f.suptitle("Matching Key Points", fontsize="x-large", fontweight="bold", y=0.95)
+    # axis[0].imshow(cv2.cvtColor(img1, cv2.COLOR_BGR2RGB))
+    # axis[0].set_title("image A Key Points")
+    # axis[0].set_axis_off()
+
+    # axis[1].imshow(cv2.cvtColor(img2, cv2.COLOR_BGR2RGB))
+    # axis[1].set_title("image B Key Points")
+    # axis[1].set_axis_off()
+    # plt.show()
     return None
+
+
+def get_features(n_imgs, id, path):
+    i = 1
+    while id >= n_imgs - 1:
+        id = id - n_imgs + 1
+        i += 1
+        n_imgs -= 1
+    j = i + 1 + id
+    img1 = cv2.imread(os.path.join(path, str(i) + ".png"))
+    img2 = cv2.imread(os.path.join(path, str(j) + ".png"))
+
+    # Initiate SIFT detector
+    sift = cv2.SIFT_create()  # if cv2 version >= 4.4.0
+    # sift = cv2.xfeatures2d.SIFT_create() # if cv2 version = 4.3.x
+
+    # Compute SIFT keypoints and descriptors
+    kpA, desA = sift.detectAndCompute(img1, None)
+    kpB, desB = sift.detectAndCompute(img2, None)
+
+    # FLANN parameters and initialize
+    FLANN_INDEX_KDTREE = 1
+    index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+    search_params = dict(checks=50)
+    flann = cv2.FlannBasedMatcher(index_params, search_params)
+
+    # Matching descriptor using KNN algorithm
+    matches = flann.knnMatch(desA, desB, k=2)
+
+    # Apply ratio test
+    ptsA = []
+    ptsB = []
+
+    for i, (m, n) in enumerate(matches):
+        if m.distance < 0.8 * n.distance:  # was 0.7
+            ptsA.append(kpA[m.queryIdx].pt)
+            ptsB.append(kpB[m.trainIdx].pt)
+
+    ptsA = np.int32(ptsA)
+    ptsB = np.int32(ptsB)
+    return ptsA, ptsB
 
 
 def getMatchesNew(dl, idxs, n_imgs, id, path, name):

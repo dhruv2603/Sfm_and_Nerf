@@ -43,6 +43,7 @@ def SetData(dl, K):
     for k in range(sz):
         X[0, k] = float(dl[k][0])
         X[1, k] = float(dl[k][1])
+
         U[0, k] = float(dl[k][2])
         U[1, k] = float(dl[k][3])
 
@@ -122,14 +123,10 @@ def main():
 
             # Projection on the 3d world
 
-            pts3D_aux_0, aux_number_0 = LinearTriangulation(
-                dl, K, R_l[0], R_l[0].T @ (-C_l[0])
-            )
+            pts3D_aux_0, aux_number_0 = LinearTriangulation(dl, K, R_l[0], (C_l[0]))
             pts3D_aux_0 = np.array(pts3D_aux_0).T
             print(aux_number_0)
-            pts3D_aux_1, aux_number_1 = LinearTriangulation(
-                dl, K, R_l[1], R_l[1].T @ (-C_l[1])
-            )
+            pts3D_aux_1, aux_number_1 = LinearTriangulation(dl, K, R_l[1], (C_l[1]))
             pts3D_aux_1 = np.array(pts3D_aux_1).T
             print(aux_number_1)
             pts3D_aux_2, aux_number_2 = LinearTriangulation(dl, K, R_l[2], C_l[2])
@@ -192,8 +189,6 @@ def main():
             # getMatches(dl, inliers_index, n, img_n, DATA_DIR)
             # F = EstimateFundamentalMatrix(inliers_dl)
             print("Values")
-            print(R_l)
-            print(C_l)
         iteration = iteration + 1
 
         # Extract x, y, and z coordinates from the matrix
@@ -208,8 +203,13 @@ def main():
     # plt.scatter(
     # plt.scatter(
     # plt.scatter(
-    # pts3D_4xN_casadi[0, :], pts3D_4xN_casadi[2, :], color="blue", label="Dataset 3"
-    # )
+    plt.scatter(
+        pts3D_4xN_casadi[0, :],
+        pts3D_4xN_casadi[2, :],
+        s=5,
+        color="blue",
+        label="Dataset 3",
+    )
 
     # Labeling the axes and adding a title
     plt.xlabel("X-axis")

@@ -312,7 +312,7 @@ def triangulatePoints(x1_h, x2_h, P1, P2):
 
 def recoverPoseFromFundamental(F, K, pts1, pts2):
     # Compute the essential matrix: E = K'.F.K
-    E = F
+    E = K.T @ F @ K
 
     # SVD of E
     U, S, Vt = np.linalg.svd(E)
