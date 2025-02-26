@@ -139,6 +139,7 @@ def main():
                 color="blue",
                 label="Dataset 3",
             )
+            plt.xlim(-40, 40)
 
             # Labeling the axes and adding a title
             plt.xlabel("X-axis")
