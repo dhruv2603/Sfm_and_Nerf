@@ -93,8 +93,8 @@ def main():
                 uv_1[0:2, :].T,
                 uv_2[0:2, :].T,
                 cv2.FM_RANSAC,
-                ransacReprojThreshold=0.03,
-                confidence=0.95,
+                ransacReprojThreshold=5,
+                confidence=0.99,
                 maxIters=5000,
             )
             # F_rank = U @ np.diag(vector) @ Vh
@@ -136,8 +136,8 @@ def main():
             pts3D_aux_3 = np.array(pts3D_aux_3).T
             print(aux_number_3)
 
-            P1 = np.hstack((np.eye(3), np.zeros((3, 1))))
-            P2 = np.hstack((R_ransac, t_ransac.reshape(3, 1)))
+            P1 = K @ np.hstack((np.eye(3), np.zeros((3, 1))))
+            P2 = K @ np.hstack((R_ransac, t_ransac.reshape(3, 1)))
 
             pts3D_4xN = triangulatePoints(uv_1, uv_2, P1, P2)
             pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
@@ -150,7 +150,7 @@ def main():
             getMatchesNew(dl, inliers_index, n, img_n, DATA_DIR, "Ransacopencv")
 
             ### Optimization section
-            x_init = init_optimization_variables(C_l[1], R_l[1], pts3D_aux_1[0:3, :])
+            x_init = init_optimization_variables(t_ransac, R_ransac, pts3D_4xN[0:3, :])
             x_vector_opt, x_trans_opt, R_quaternion_opt, distortion_opt = (
                 cameraCalibrationCasADi(
                     uv_1,
@@ -159,8 +159,8 @@ def main():
                     x_init,
                     I,
                     t,
-                    R_l[1],
-                    C_l[1],
+                    R_ransac,
+                    t_ransac,
                     pts3D_aux_1,
                 )
             )
@@ -192,13 +192,6 @@ def main():
         iteration = iteration + 1
 
         # Extract x, y, and z coordinates from the matrix
-    plt.scatter(
-        pts3D_aux_0[0, :], pts3D_aux_0[2, :], s=5, color="red", label="Dataset 0"
-    )
-    plt.scatter(
-        pts3D_aux_1[0, :], pts3D_aux_1[2, :], s=5, color="green", label="Dataset 1"
-    )
-    plt.xlim(-20, 20)
     # plt.scatter(pts3D_4xN[0, :], pts3D_4xN[2, :], color="red", label="Dataset 3")
     # plt.scatter(
     # plt.scatter(
@@ -208,6 +201,13 @@ def main():
         pts3D_4xN_casadi[2, :],
         s=5,
         color="blue",
+        label="Dataset 3",
+    )
+    plt.scatter(
+        pts3D_4xN[0, :],
+        pts3D_4xN[2, :],
+        s=5,
+        color="red",
         label="Dataset 3",
     )
 

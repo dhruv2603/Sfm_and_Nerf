@@ -7,6 +7,8 @@ from functions import *
 from EstimateFundamentalMatrix import (
     recoverPoseFromFundamental,
     triangulatePoints,
+    init_optimization_variables,
+    cameraCalibrationCasADi,
 )
 
 
@@ -98,18 +100,43 @@ def main():
             P1 = K @ np.hstack((np.eye(3), np.zeros((3, 1))))
             P2 = K @ np.hstack((R_ransac, t_ransac.reshape(3, 1)))
 
-            # x = cv2.triangulatePoints(
-            #    P1[0:3, 0:4], P2[0:3, 0:4], inliersA_og.T, inliersB_og.T
-            # )  # OpenCV's Linear-Eigen triangl
-            # x[0:3, :] = x[0:3, :] / x[3:4, :]  # normalize coordinates
+            # Initial Conditions camera 1
+            I = np.eye(3, 3)
+            t = np.zeros((3, 1))
 
             pts3D_4xN = triangulatePoints(inliersA_og.T, inliersB_og.T, P1, P2)
             pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
+
+            # Nonlinear Optimizer
+            x_init = init_optimization_variables(t_ransac, R_ransac, pts3D_4xN[0:3, :])
+            x_vector_opt, x_trans_opt, R_quaternion_opt, distortion_opt = (
+                cameraCalibrationCasADi(
+                    inliersA_og.T,
+                    inliersB_og.T,
+                    K,
+                    x_init,
+                    I,
+                    t,
+                    R_ransac,
+                    t_ransac,
+                    pts3D_4xN,
+                )
+            )
+            pts3D_4xN_casadi = np.vstack(
+                (x_vector_opt, np.ones((1, x_vector_opt.shape[1])))
+            )
             plt.scatter(
                 pts3D_4xN[0, :],
                 pts3D_4xN[2, :],
-                s=1,
+                s=5,
                 color="green",
+                label="Dataset 3",
+            )
+            plt.scatter(
+                pts3D_4xN_casadi[0, :],
+                pts3D_4xN_casadi[2, :],
+                s=1,
+                color="blue",
                 label="Dataset 3",
             )
 
