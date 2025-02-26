@@ -512,8 +512,6 @@ def cameraCalibrationCasADi(pts1, pts2, A, x_init, R1, t1, R2, t2, x):
 
     ### --- Compute reprojection error ---
     ## U_real is a numpy array; convert it to CasADi DM.
-    print(U_real1.shape)
-    print(U_improved_final_1.shape)
     error_1 = U_real1 - U_improved_final_1
     error_2 = U_real2 - U_improved_final_2
     ### Reshape error into a column vector.
@@ -525,7 +523,7 @@ def cameraCalibrationCasADi(pts1, pts2, A, x_init, R1, t1, R2, t2, x):
 
     ### --- Set up and solve the NLP ---
     nlp = {"x": a_vector, "f": cost}
-    opts = {"print_time": 1, "ipopt": {"print_level": 5}}
+    opts = {"print_time": 0, "ipopt": {"print_level": 0}}
     solver = ca.nlpsol("solver", "ipopt", nlp, opts)
     sol = solver(x0=x_init)
     a_opt_vec = np.array(sol["x"]).flatten()

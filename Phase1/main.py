@@ -10,7 +10,7 @@ from EstimateFundamentalMatrix import (
     init_optimization_variables,
     cameraCalibrationCasADi,
 )
-import cv2 as cv2
+import cv2 as cvw
 
 
 def SetData(dl, K):
@@ -68,32 +68,38 @@ def main():
             F = getFundamentalMatrix(pixels_1.T, pixels_2.T, num_point=8)
             tol = 1
 
-            # Ransac over the points
-            # F_og, mask_og = getFundamentalMatRANSAC(
-            # ptsA=pixels_1, ptsB=pixels_2, tol=tol, num_sample=8, confidence=0.99
-            # )
-
-            # sift over the pair of images to compute features
+            # Compute sift features from the images
             ptsA, ptsB = get_features(n, img_n, DATA_DIR)
             plotMatches(dl, n, img_n, DATA_DIR, ptsA.T, ptsB.T, "Verification")
 
-            # Compute fundamental matrix sift without ransacs
-            F_aux = getFundamentalMatrix(ptsA, ptsB, num_point=8)
+            # Compute fundamental matrix
+            # F_aux = getFundamentalMatrix(ptsA, ptsB, num_point=8)
+            # F_aux, mask_sift = getFundamentalMatRANSAC(
+            #    ptsA=ptsA, ptsB=ptsB, tol=tol, num_sample=8, confidence=0.99
+            # )
 
-            F_aux, mask_sift = getFundamentalMatRANSAC(
-                ptsA=ptsA, ptsB=ptsB, tol=tol, num_sample=8, confidence=0.99
+            F_ree, mask = cv2.findFundamentalMat(
+                ptsA,
+                ptsB,
+                cv2.FM_RANSAC,
+                ransacReprojThreshold=1.6,
+                confidence=0.99,
+                maxIters=5000,
             )
 
             # Get Re-estimate Fundamental matrix using only inliers
-            inliersA_og = ptsA[mask_sift.ravel() == 1]
-            inliersB_og = ptsB[mask_sift.ravel() == 1]
-            F_ree, _ = getFundamentalMatRANSAC(
-                ptsA=inliersA_og,
-                ptsB=inliersB_og,
-                tol=tol,
-                num_sample=8,
-                confidence=0.99,
-            )
+            inliersA_og = ptsA[mask.ravel() == 1]
+            inliersB_og = ptsB[mask.ravel() == 1]
+            # F_ree, _ = getFundamentalMatRANSAC(
+            #    ptsA=inliersA_og,
+            #    ptsB=inliersB_og,
+            #    tol=tol,
+            #    num_sample=8,
+            #    confidence=0.99,
+            # )
+            print(ptsA)
+            print(inliersA_og.shape)
+
             ## Normalize data
             inliersA_og = np.vstack(
                 (inliersA_og.T, np.ones((1, inliersA_og.shape[0])))
@@ -103,17 +109,18 @@ def main():
             )  # Shape: (3, N)
             points_A_normalized_inlier = inliersA_og
             points_B_normalized_inlier = inliersB_og
+
+            ## Compute Rotation and translation
             R_ransac, t_ransac, _inliers = recoverPoseFromFundamental(
                 F_ree, K, points_A_normalized_inlier, points_B_normalized_inlier
             )
+
             ## Projection Matrix
             F_identity = np.eye(3)
             Identity = np.hstack([np.eye(3), np.zeros((3, 1))])  # 3x4 matri
             I = np.eye(3, 3)
             t = np.zeros((3, 1))
-
             aux_last_element_homogeneous = np.array([[0.0, 0.0, 0.0, 1.0]])
-
             T_1 = np.vstack(
                 (
                     np.hstack((I, t)),  # shape: (3,4)
@@ -126,10 +133,10 @@ def main():
                     aux_last_element_homogeneous,
                 )
             )
-
             P1 = K @ F_identity @ Identity @ T_1
             P2 = K @ F_identity @ Identity @ T_2
 
+            ## Triangulation
             # pts3D_4xN = triangulatePoints(
             # points_A_normalized_inlier, points_B_normalized_inlier, P1, P2
             # )
@@ -142,7 +149,7 @@ def main():
             )  # OpenCV's Linear-Eigen triangl
             pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
 
-            # Nonlinear Optimizer
+            # Nonlinear Optimizer for translations, rotation and points in world
             x_init = init_optimization_variables(t_ransac, R_ransac, pts3D_4xN[0:3, :])
             x_vector_opt, x_trans_opt, R_quaternion_opt, distortion_opt = (
                 cameraCalibrationCasADi(
@@ -157,13 +164,21 @@ def main():
                     pts3D_4xN,
                 )
             )
+
+            ## Points from the optimizer
             pts3D_4xN_casadi = np.vstack(
                 (x_vector_opt, np.ones((1, x_vector_opt.shape[1])))
             )
+
+            ## Show results
+            fig = plt.figure()
+
+            # Add a 3D subplot
+            ax = fig.add_subplot(111)
             plt.scatter(
                 pts3D_4xN[0, :],
                 pts3D_4xN[2, :],
-                s=5,
+                s=2,
                 color="green",
                 label="Dataset 3",
             )
@@ -174,8 +189,8 @@ def main():
                 color="blue",
                 label="Dataset 3",
             )
-            plt.xlim(-40, 40)
-
+            plt.xlim(-20, 20)
+            plt.ylim(0, 30)
             # Labeling the axes and adding a title
             plt.xlabel("X-axis")
             plt.ylabel("Y-axis")
