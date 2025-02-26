@@ -6,6 +6,7 @@ import casadi as ca
 import time
 import math
 from scipy.spatial.transform import Rotation as R
+import cv2 as cv2
 
 
 def EstimateFundamentalMatrix(dl):
@@ -341,8 +342,19 @@ def recoverPoseFromFundamental(F, K, pts1, pts2):
     pts1_h = np.vstack((pts1.T, np.ones((1, N))))  # Shape: (3, N)
     pts2_h = np.vstack((pts2.T, np.ones((1, N))))  # Shape: (3, N)
 
-    # Camera 1 projection matrix: [I | 0]
-    P1 = K @ np.hstack((np.eye(3), np.zeros((3, 1))))
+    F_identity = np.eye(3)
+    Identity = np.hstack([np.eye(3), np.zeros((3, 1))])  # 3x4 matri
+    I = np.eye(3, 3)
+    t = np.zeros((3, 1))
+    aux_last_element_homogeneous = np.array([[0.0, 0.0, 0.0, 1.0]])
+    T_1 = np.vstack(
+        (
+            np.hstack((I, t)),  # shape: (3,4)
+            aux_last_element_homogeneous,
+        )
+    )
+
+    P1 = K @ F_identity @ Identity @ T_1
 
     bestCount = -np.inf
     best_R = None
@@ -357,18 +369,28 @@ def recoverPoseFromFundamental(F, K, pts1, pts2):
                 t_test = -t_test
                 R_test = -R_test
 
+            T_2 = np.vstack(
+                (
+                    np.hstack((R_test, t_test.reshape((3, 1)))),  # shape: (3,4)
+                    aux_last_element_homogeneous,
+                )
+            )
             # Camera 2 projection matrix: [R | t]
-            P2 = K @ np.hstack((R_test, t_test.reshape(3, 1)))
+            P2 = K @ F_identity @ Identity @ T_2
 
             # Triangulate points.
-            pts3D_4xN = triangulatePoints(pts1_h, pts2_h, P1, P2)
-            # Convert homogeneous 3D points to Cartesian coordinates.
-            pts3D = pts3D_4xN[0:3, :] / pts3D_4xN[3, :]
+            pts3D = cv2.triangulatePoints(
+                P1[0:3, 0:4],
+                P2[0:3, 0:4],
+                pts1_h[0:2, :],
+                pts2_h[0:2, :],
+            )  # OpenCV's Linear-Eigen triangl
+            pts3D = pts3D / pts3D[3, :]
 
             # Check depth in camera 1 (Z1 > 0).
             Z1 = pts3D[2, :]
             # Check depth in camera 2 (Z2 > 0): transform pts3D into camera 2 frame.
-            pts3D_cam2 = R_test @ pts3D + t_test.reshape(3, 1)
+            pts3D_cam2 = R_test @ pts3D[0:3, :] + t_test.reshape(3, 1)
             Z2 = pts3D_cam2[2, :]
 
             valid = (Z1 > 0) & (Z2 > 0)

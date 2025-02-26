@@ -10,6 +10,7 @@ from EstimateFundamentalMatrix import (
     init_optimization_variables,
     cameraCalibrationCasADi,
 )
+import cv2 as cv2
 
 
 def SetData(dl, K):
@@ -93,26 +94,60 @@ def main():
                 num_sample=8,
                 confidence=0.99,
             )
+            ## Normalize data
+            inliersA_og = np.vstack(
+                (inliersA_og.T, np.ones((1, inliersA_og.shape[0])))
+            )  # Shape: (3, N)
+            inliersB_og = np.vstack(
+                (inliersB_og.T, np.ones((1, inliersB_og.shape[0])))
+            )  # Shape: (3, N)
+            points_A_normalized_inlier = inliersA_og
+            points_B_normalized_inlier = inliersB_og
             R_ransac, t_ransac, _inliers = recoverPoseFromFundamental(
-                F_ree, K, inliersA_og.T, inliersB_og.T
+                F_ree, K, points_A_normalized_inlier, points_B_normalized_inlier
             )
-
-            P1 = K @ np.hstack((np.eye(3), np.zeros((3, 1))))
-            P2 = K @ np.hstack((R_ransac, t_ransac.reshape(3, 1)))
-
-            # Initial Conditions camera 1
+            ## Projection Matrix
+            F_identity = np.eye(3)
+            Identity = np.hstack([np.eye(3), np.zeros((3, 1))])  # 3x4 matri
             I = np.eye(3, 3)
             t = np.zeros((3, 1))
 
-            pts3D_4xN = triangulatePoints(inliersA_og.T, inliersB_og.T, P1, P2)
+            aux_last_element_homogeneous = np.array([[0.0, 0.0, 0.0, 1.0]])
+
+            T_1 = np.vstack(
+                (
+                    np.hstack((I, t)),  # shape: (3,4)
+                    aux_last_element_homogeneous,
+                )
+            )
+            T_2 = np.vstack(
+                (
+                    np.hstack((R_ransac, t_ransac.reshape((3, 1)))),  # shape: (3,4)
+                    aux_last_element_homogeneous,
+                )
+            )
+
+            P1 = K @ F_identity @ Identity @ T_1
+            P2 = K @ F_identity @ Identity @ T_2
+
+            # pts3D_4xN = triangulatePoints(
+            # points_A_normalized_inlier, points_B_normalized_inlier, P1, P2
+            # )
+            # pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
+            pts3D_4xN = cv2.triangulatePoints(
+                P1[0:3, 0:4],
+                P2[0:3, 0:4],
+                points_A_normalized_inlier[0:2, :],
+                points_B_normalized_inlier[0:2, :],
+            )  # OpenCV's Linear-Eigen triangl
             pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
 
             # Nonlinear Optimizer
             x_init = init_optimization_variables(t_ransac, R_ransac, pts3D_4xN[0:3, :])
             x_vector_opt, x_trans_opt, R_quaternion_opt, distortion_opt = (
                 cameraCalibrationCasADi(
-                    inliersA_og.T,
-                    inliersB_og.T,
+                    points_A_normalized_inlier,
+                    points_B_normalized_inlier,
                     K,
                     x_init,
                     I,
@@ -147,9 +182,10 @@ def main():
             plt.title("2D Scatter Plot of Two Data Sets")
             plt.savefig("scatter_plot.pdf", format="pdf")
 
-            print(F_ree)
             print(R_ransac)
+            print(R_quaternion_opt)
             print(t_ransac)
+            print(x_trans_opt)
 
         iteration = iteration + 1
 
