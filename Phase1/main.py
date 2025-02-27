@@ -73,10 +73,12 @@ def main():
             plotMatches(dl, n, img_n, DATA_DIR, ptsA.T, ptsB.T, "Verification")
 
             # Compute fundamental matrix
-            # F_aux = getFundamentalMatrix(ptsA, ptsB, num_point=8)
-            # F_aux, mask_sift = getFundamentalMatRANSAC(
-            #    ptsA=ptsA, ptsB=ptsB, tol=tol, num_sample=8, confidence=0.99
-            # )
+            F_aux = getFundamentalMatrix(ptsA, ptsB, num_point=8)
+            print(F_aux)
+            F_aux, mask_sift = getFundamentalMatRANSAC(
+               ptsA=ptsA, ptsB=ptsB, tol=tol, num_sample=8, confidence=0.99
+            )
+            print(F_aux)
 
             F_ree, mask = cv2.findFundamentalMat(
                 ptsA,
