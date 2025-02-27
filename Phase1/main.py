@@ -254,9 +254,12 @@ def main():
             uv_j_c = uv_j_c.T[:,:2]
             uv_i_c = uv_i_c.T[:,:2]
             print("Shape uv_j", uv_j.shape)
+            # store indexes of array which need triangulation
+            needs_traingulation_idxs_list = []
             # for each row in uv_j
             for a,each_row in enumerate(uv_j):
                 # and each row in Master list
+                flag_a_in_ml = 0
                 for each_Mrow in master_list:
                     # calculate the length of the Master list row
                     Mrow_len = len(each_Mrow)
@@ -265,6 +268,7 @@ def main():
                     while(3 + 3*k + 1 < Mrow_len):
                         if(each_Mrow[3+3*k+1] == j):
                             if(each_Mrow[3+3*k+2]==each_row[0] and each_Mrow[3+3*k+3]==each_row[1]):
+                                flag_a_in_ml = 1
                                 print("Master list u: ",each_Mrow[3+3*k+2])
                                 print("master_list v:", each_Mrow[3+3*k+3])
                                 print("Image j u: ", each_row[0])
@@ -281,8 +285,12 @@ def main():
                                 each_Mrow.append(i)
                                 each_Mrow.append(uv_i[a,0])
                                 each_Mrow.append(uv_i[a,1])
+                                break
 
                         k = k+1
+                if(flag_a_in_ml == 0):
+                    #store the index list in the matching list for which there is no world point
+                    needs_traingulation_idxs_list.append(a)
     print(master_list)
     with open('./P2Data/Matches/master_list.txt', 'w', newline='') as file:
         writer = csv.writer(file, delimiter=' ')
