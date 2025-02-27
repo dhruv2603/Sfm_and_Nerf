@@ -24,9 +24,4 @@ def ExtractCameraPose(E):
         R4 = -R4
         C4 = -C4
 
-    print(np.linalg.det(R1))
-    print(np.linalg.det(R2))
-    print(np.linalg.det(R3))
-    print(np.linalg.det(R4))
-
     return [R1, R2, R3, R4],[C1, C2, C3, C4]

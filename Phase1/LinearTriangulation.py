@@ -3,10 +3,14 @@ import scipy
 import scipy.linalg
 
 def LinearTriangulation(dl, K, R, C):
-    P1 = np.matmul(K,np.array([[1,0,0,0],
-                               [0,1,0,0],
-                               [0,0,1,0]]))
-    P2 = np.matmul(K,np.hstack((R,C)))
+    R0 = np.array([[1,0,0],
+                   [0,1,0],
+                   [0,0,1]])
+    C0 = np.array([[0],
+                   [0],
+                   [0]])
+    P1 = np.matmul(K,np.hstack((R0,-np.matmul(R0,C0))))
+    P2 = np.matmul(K,np.hstack((R,-np.matmul(R,C))))
     X_list = []
     count  = 0
     for feature in dl:
@@ -23,9 +27,9 @@ def LinearTriangulation(dl, K, R, C):
         A = np.vstack((a,b))
         _,_,V = scipy.linalg.svd(A)
         X_H = V[-1]
-        X = np.array([X_H[0], X_H[1], X_H[2]])
+        X = np.array([X_H[0], X_H[1], X_H[2]])/X_H[3]
         X_list.append(X)
-        val = np.matmul(np.transpose(R[:,2]),X-C)
+        val = np.matmul(np.transpose(R[:,2]),np.reshape(X,(3,1))-C)
         if val > 0:
             count += 1
     return X_list, count

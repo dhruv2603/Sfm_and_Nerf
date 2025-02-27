@@ -1,16 +1,18 @@
 import numpy as np
 import os
 import scipy.linalg
-import tqdm
+from tqdm import tqdm
 import argparse
 from natsort import natsorted
 import scipy
+import cv2
 from scipy.optimize import least_squares
 from EstimateFundamentalMatrix import EstimateFundamentalMatrix
 from GetInlierRANSAC import GetInlierRANSAC
 from EssentialMatrixFromFundamentalMatrix import EssentialMatrixFromFundamentalMatrix
 from ExtractCameraPose import ExtractCameraPose
 from DisambiguateCameraPose import DisambiguateCameraPose
+from NonLinearTriangulation import NonLinearTriangulation
 from helperFunctions import *
 
 
@@ -28,14 +30,8 @@ def main():
      # Number of features for corner detector and possible Ransac
     DATA_DIR = Args.Data
 
-
-    # FOLDER = "../Data"
     # IMAGE_FOLDER = os.path.join(FOLDER, Args.Test)
     # IMAGE_DIR = os.path.join(IMAGE_FOLDER, Args.ImagesPath)
-
-    # # Create folder to save the images
-    # CORNERS_DIR = "./Corners/"
-    # CORNERS_DIR = os.path.join(CORNERS_DIR, os.path.basename(IMAGE_DIR) + "/")
 
     # # Create new directory save as pdf
     # RESULTS_DIR = "./PDFs/"
@@ -45,25 +41,58 @@ def main():
     # if not os.path.exists(CORNERS_DIR):
     #     os.makedirs(CORNERS_DIR)
 
-    # if not os.path.exists(RESULTS_DIR):
-    #     os.makedirs(RESULTS_DIR)
-
     CALIBRATION_PATH, matching_files = sorttxtFiles(DATA_DIR)
     n = len(matching_files) + 1
     nFeatures, data_list = readFiles(matching_files,DATA_DIR)
-    """
-    Compute inliers using RANSAC
-    """
     for img_n, dl in enumerate(data_list):
-        inliers_dl, idxs = GetInlierRANSAC(dl)
-        getMatches(dl, idxs, n, img_n, DATA_DIR)
+        dl_array = np.array(dl)
+        pts1 = dl_array[:,:2]
+        pts2 = dl_array[:,2:]
+        """
+        Compute inliers using RANSAC
+        """
         """
         Estimate the Fundamental Matrix
         """
-        F = EstimateFundamentalMatrix(inliers_dl)
-        K = np.loadtxt(CALIBRATION_PATH)
-        E = EssentialMatrixFromFundamentalMatrix(K, F)
-        R_l,C_l = ExtractCameraPose(E)
-        R,C, world_coords = DisambiguateCameraPose(inliers_dl, R_l, C_l)
+        # inliers_dl, idxs = GetInlierRANSAC(pts1,pts2)
+        F,idxs = GetInlierRANSAC(pts1,pts2)
+        # print(F)
+        F2,mask = cv2.findFundamentalMat(pts1, pts2) 
+        # print(F2)
+        getMatches(pts1,pts2, idxs, n, img_n, DATA_DIR)
+        # i,j = getImgNums(n,img_n)
+        # img1 = cv2.imread(os.path.join(DATA_DIR,str(i) + ".png"))
+        # img2 = cv2.imread(os.path.join(DATA_DIR,str(j) + ".png"))
+        # visualize_epipolar_lines(img1, img2, pts1, pts2, F, title="Epipolar Lines")
+        # F = EstimateFundamentalMatrix(pts1,pts2)
+        # if img_n == 0:
+        #     F = EstimateFundamentalMatrix(pts1,pts2)
+
+    # """
+    # Estimamte the Intrinsic Matrix
+    # """
+    # K = np.loadtxt(CALIBRATION_PATH)
+    # """
+    # Estimate the Essential Matrix
+    # """
+    # E = EssentialMatrixFromFundamentalMatrix(K, F)
+    # """
+    # Extract Pose from Essential Matrix
+    # """
+    # R_l,C_l = ExtractCameraPose(E)
+    # """
+    # Get Initial World Coordinates using Linear Triangulation
+    # """
+    # R,C, X0 = DisambiguateCameraPose(inliers_dl, K, R_l, C_l)
+    # """
+    # Get Corrected World Coordinates using Non-Linear Triangualtion
+    # """
+    # X = NonLinearTriangulation(inliers_dl, K, R, C, X0)
+    # # print(len(X))
+    # """
+    # Perform PnP RANSAC
+    # """
+    # print(R)
+    # print(C)
 if __name__ == "__main__":
     main()

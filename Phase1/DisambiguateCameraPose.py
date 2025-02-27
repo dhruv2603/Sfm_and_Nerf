@@ -10,6 +10,7 @@ def DisambiguateCameraPose(dl, K, R_l, C_l):
                   [0],
                   [0]])
     for r,c in zip(R_l,C_l):
+        c = np.reshape(c,(3,1))
         X_list, count = LinearTriangulation(dl,K,r,c)
         if count > c_max:
             c_max = count
