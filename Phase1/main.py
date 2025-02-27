@@ -1,5 +1,6 @@
 import numpy as np
 import argparse
+import csv
 from helperFunctions import *
 import scipy.io as sio
 import matplotlib.pyplot as plt
@@ -10,6 +11,7 @@ from EstimateFundamentalMatrix import (
     init_optimization_variables,
     cameraCalibrationCasADi,
 )
+from LinearPnp import LinearPnP
 import cv2 as cvw
 
 
@@ -70,28 +72,41 @@ def main():
 
             # Compute sift features from the images
             ptsA, ptsB = get_features(n, img_n, DATA_DIR)
-            plotMatches(dl, n, img_n, DATA_DIR, ptsA.T, ptsB.T, "Verification")
+            plotMatches(dl, n, img_n, DATA_DIR, pixels_1, pixels_2, "Verification")
+            # plotMatches(dl, n, img_n, DATA_DIR, ptsA.T, ptsB.T, "Verification")
 
             # Compute fundamental matrix
-            F_aux = getFundamentalMatrix(ptsA, ptsB, num_point=8)
-            print(F_aux)
+            F_aux = getFundamentalMatrix(pixels_1.T, pixels_2.T, num_point=8)
+            # F_aux = getFundamentalMatrix(ptsA, ptsB, num_point=8)
             F_aux, mask_sift = getFundamentalMatRANSAC(
-               ptsA=ptsA, ptsB=ptsB, tol=tol, num_sample=8, confidence=0.99
+               ptsA=pixels_1.T, ptsB=pixels_2.T, tol=tol, num_sample=8, confidence=0.99
             )
-            print(F_aux)
+            # F_aux, mask_sift = getFundamentalMatRANSAC(
+            #    ptsA=ptsA, ptsB=ptsB, tol=tol, num_sample=8, confidence=0.99
+            # )
 
             F_ree, mask = cv2.findFundamentalMat(
-                ptsA,
-                ptsB,
+                pixels_1.T,
+                pixels_2.T,
                 cv2.FM_RANSAC,
                 ransacReprojThreshold=1.6,
                 confidence=0.99,
                 maxIters=5000,
             )
+            # F_ree, mask = cv2.findFundamentalMat(
+            #     ptsA,
+            #     ptsB,
+            #     cv2.FM_RANSAC,
+            #     ransacReprojThreshold=1.6,
+            #     confidence=0.99,
+            #     maxIters=5000,
+            # )
 
             # Get Re-estimate Fundamental matrix using only inliers
-            inliersA_og = ptsA[mask.ravel() == 1]
-            inliersB_og = ptsB[mask.ravel() == 1]
+            inliersA_og = pixels_1.T[mask.ravel() == 1]
+            inliersB_og = pixels_2.T[mask.ravel() == 1]
+            # inliersA_og = ptsA[mask.ravel() == 1]
+            # inliersB_og = ptsB[mask.ravel() == 1]
             # F_ree, _ = getFundamentalMatRANSAC(
             #    ptsA=inliersA_og,
             #    ptsB=inliersB_og,
@@ -99,18 +114,22 @@ def main():
             #    num_sample=8,
             #    confidence=0.99,
             # )
-            print(ptsA)
-            print(inliersA_og.shape)
 
             ## Normalize data
-            inliersA_og = np.vstack(
+            points_A_normalized_inlier = np.vstack(
                 (inliersA_og.T, np.ones((1, inliersA_og.shape[0])))
             )  # Shape: (3, N)
-            inliersB_og = np.vstack(
+            points_B_normalized_inlier = np.vstack(
                 (inliersB_og.T, np.ones((1, inliersB_og.shape[0])))
             )  # Shape: (3, N)
-            points_A_normalized_inlier = inliersA_og
-            points_B_normalized_inlier = inliersB_og
+            # inliersA_og = np.vstack(
+            #     (inliersA_og.T, np.ones((1, inliersA_og.shape[0])))
+            # )  # Shape: (3, N)
+            # inliersB_og = np.vstack(
+            #     (inliersB_og.T, np.ones((1, inliersB_og.shape[0])))
+            # )  # Shape: (3, N)
+            # points_A_normalized_inlier = inliersA_og
+            # points_B_normalized_inlier = inliersB_og
 
             ## Compute Rotation and translation
             R_ransac, t_ransac, _inliers = recoverPoseFromFundamental(
@@ -199,13 +218,78 @@ def main():
             plt.title("2D Scatter Plot of Two Data Sets")
             plt.savefig("scatter_plot.pdf", format="pdf")
 
-            print(R_ransac)
-            print(R_quaternion_opt)
-            print(t_ransac)
-            print(x_trans_opt)
+            print("R RANSAC: ", R_ransac)
+            print("R Quaternion Opt: ", R_quaternion_opt)
+            print("T RANSAC: ", t_ransac)
+            print("X Trans Opt:", x_trans_opt)
+            print("InliersA OG shape: ",inliersA_og.shape)
+            print("InliersB OG shape: ",inliersA_og.shape)
+            print("World Coordinates shape: ", pts3D_4xN_casadi.shape)
+            print("Type A :", type(inliersA_og))
+            print("Type B: ", type(inliersB_og))
+            print("Type world: ", type(pts3D_4xN_casadi))
+            # Array with values: 
+            # [World coordinate, img_id, u, v, img_id, u, v] 
+            # stacked one below the other for each point
+            master_list = np.hstack([pts3D_4xN_casadi.T,np.ones((inliersA_og.shape[0],1),dtype=int),inliersA_og,2*np.ones((inliersA_og.shape[0],1),dtype=int),inliersB_og])
+            master_list = master_list.tolist()
+            print("Master List length: ",len(master_list))
 
         iteration = iteration + 1
+    # Traverse in the data list for each new image
+    # for image i, get all pairs till i-1 (because you have world coordinates for i-1)
+    for i in range(3,n+1):
+        # if(i==3):
+        # for image i get images from 1 to i-1
+        for j in range(1,i):
+            # obtain the index of the data list match images (j,i)
+            match_idx = (j-1)*(10-j)/2 + i-j-1
+            # get the list matching[ji]
+            print("Match idx", match_idx)
+            dl = data_list[int(match_idx)]
+            # get the uv indexes for j and i
+            uv_j, uv_i, uv_j_c, uv_i_c = SetData(dl,K)
+            uv_j = uv_j.T[:,:2]
+            uv_i = uv_i.T[:,:2]
+            uv_j_c = uv_j_c.T[:,:2]
+            uv_i_c = uv_i_c.T[:,:2]
+            print("Shape uv_j", uv_j.shape)
+            # for each row in uv_j
+            for a,each_row in enumerate(uv_j):
+                # and each row in Master list
+                for each_Mrow in master_list:
+                    # calculate the length of the Master list row
+                    Mrow_len = len(each_Mrow)
+                    k=0
+                    # traverse throgh all ids in the row and check if the row has the id j
+                    while(3 + 3*k + 1 < Mrow_len):
+                        if(each_Mrow[3+3*k+1] == j):
+                            if(each_Mrow[3+3*k+2]==each_row[0] and each_Mrow[3+3*k+3]==each_row[1]):
+                                print("Master list u: ",each_Mrow[3+3*k+2])
+                                print("master_list v:", each_Mrow[3+3*k+3])
+                                print("Image j u: ", each_row[0])
+                                print("image j v: ", each_row[1])
+                                m = k+1
+                                flag = 0
+                                while(3 + 3*m +1 < Mrow_len):
+                                    if(each_Mrow[3+3*k+1] == j):
+                                        flag = 1
+                                        break
+                                    m = m+1
+                                if(flag == 1):
+                                    break
+                                each_Mrow.append(i)
+                                each_Mrow.append(uv_i[a,0])
+                                each_Mrow.append(uv_i[a,1])
+
+                        k = k+1
+    print(master_list)
+    with open('./P2Data/Matches/master_list.txt', 'w', newline='') as file:
+        writer = csv.writer(file, delimiter=' ')
+        # Write each list as a row
+        writer.writerows(master_list)
 
 
+                        
 if __name__ == "__main__":
     main()
