@@ -67,70 +67,40 @@ def main():
             pixels_1 = uv_1[0:2, :]
             pixels_2 = uv_2[0:2, :]
 
-            # Coputing Fundamental matrrix based on data
-            F = getFundamentalMatrix(pixels_1.T, pixels_2.T, num_point=8)
+            # Tolerance
             tol = 1
 
             # Compute sift features from the images
             ptsA, ptsB = get_features(n, img_n, DATA_DIR)
             plotMatches(dl, n, img_n, DATA_DIR, pixels_1, pixels_2, "Verification")
-            # plotMatches(dl, n, img_n, DATA_DIR, ptsA.T, ptsB.T, "Verification")
 
-            # Compute fundamental matrix
+            # Compute fundamental matrix based on our functions
             F_aux = getFundamentalMatrix(pixels_1.T, pixels_2.T, num_point=8)
-            # F_aux = getFundamentalMatrix(ptsA, ptsB, num_point=8)
             F_aux, mask_sift = getFundamentalMatRANSAC(
-               ptsA=pixels_1.T, ptsB=pixels_2.T, tol=tol, num_sample=8, confidence=0.99
+                ptsA=pixels_1.T, ptsB=pixels_2.T, tol=tol, num_sample=8, confidence=0.99
             )
-            # F_aux, mask_sift = getFundamentalMatRANSAC(
-            #    ptsA=ptsA, ptsB=ptsB, tol=tol, num_sample=8, confidence=0.99
-            # )
 
+            # Compute fundamental matrix based on cv funciton
             F_ree, mask = cv2.findFundamentalMat(
                 pixels_1.T,
                 pixels_2.T,
                 cv2.FM_RANSAC,
-                ransacReprojThreshold=1.6,
+                ransacReprojThreshold=0.1,
                 confidence=0.99,
                 maxIters=5000,
             )
-            # F_ree, mask = cv2.findFundamentalMat(
-            #     ptsA,
-            #     ptsB,
-            #     cv2.FM_RANSAC,
-            #     ransacReprojThreshold=1.6,
-            #     confidence=0.99,
-            #     maxIters=5000,
-            # )
 
             # Get Re-estimate Fundamental matrix using only inliers
             inliersA_og = pixels_1.T[mask.ravel() == 1]
             inliersB_og = pixels_2.T[mask.ravel() == 1]
-            # inliersA_og = ptsA[mask.ravel() == 1]
-            # inliersB_og = ptsB[mask.ravel() == 1]
-            # F_ree, _ = getFundamentalMatRANSAC(
-            #    ptsA=inliersA_og,
-            #    ptsB=inliersB_og,
-            #    tol=tol,
-            #    num_sample=8,
-            #    confidence=0.99,
-            # )
 
-            ## Normalize data
+            ## Homogenous data shape 3, N
             points_A_normalized_inlier = np.vstack(
                 (inliersA_og.T, np.ones((1, inliersA_og.shape[0])))
             )  # Shape: (3, N)
             points_B_normalized_inlier = np.vstack(
                 (inliersB_og.T, np.ones((1, inliersB_og.shape[0])))
             )  # Shape: (3, N)
-            # inliersA_og = np.vstack(
-            #     (inliersA_og.T, np.ones((1, inliersA_og.shape[0])))
-            # )  # Shape: (3, N)
-            # inliersB_og = np.vstack(
-            #     (inliersB_og.T, np.ones((1, inliersB_og.shape[0])))
-            # )  # Shape: (3, N)
-            # points_A_normalized_inlier = inliersA_og
-            # points_B_normalized_inlier = inliersB_og
 
             ## Compute Rotation and translation
             R_ransac, t_ransac, _inliers = recoverPoseFromFundamental(
@@ -158,11 +128,13 @@ def main():
             P1 = K @ F_identity @ Identity @ T_1
             P2 = K @ F_identity @ Identity @ T_2
 
-            ## Triangulation
+            ## Triangulation based on our funcitons
             # pts3D_4xN = triangulatePoints(
             # points_A_normalized_inlier, points_B_normalized_inlier, P1, P2
             # )
             # pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
+
+            ## Triangulation based on cv functions
             pts3D_4xN = cv2.triangulatePoints(
                 P1[0:3, 0:4],
                 P2[0:3, 0:4],
@@ -223,83 +195,94 @@ def main():
             print("R Quaternion Opt: ", R_quaternion_opt)
             print("T RANSAC: ", t_ransac)
             print("X Trans Opt:", x_trans_opt)
-            print("InliersA OG shape: ",inliersA_og.shape)
-            print("InliersB OG shape: ",inliersA_og.shape)
+            print("InliersA OG shape: ", inliersA_og.shape)
+            print("InliersB OG shape: ", inliersA_og.shape)
             print("World Coordinates shape: ", pts3D_4xN_casadi.shape)
             print("Type A :", type(inliersA_og))
             print("Type B: ", type(inliersB_og))
             print("Type world: ", type(pts3D_4xN_casadi))
-            # Array with values: 
-            # [World coordinate, img_id, u, v, img_id, u, v] 
+            # Array with values:
+            # [World coordinate, img_id, u, v, img_id, u, v]
             # stacked one below the other for each point
-            master_list = np.hstack([pts3D_4xN_casadi.T,np.ones((inliersA_og.shape[0],1),dtype=int),inliersA_og,2*np.ones((inliersA_og.shape[0],1),dtype=int),inliersB_og])
+            master_list = np.hstack(
+                [
+                    pts3D_4xN_casadi.T,
+                    np.ones((inliersA_og.shape[0], 1), dtype=int),
+                    inliersA_og,
+                    2 * np.ones((inliersA_og.shape[0], 1), dtype=int),
+                    inliersB_og,
+                ]
+            )
             master_list = master_list.tolist()
-            print("Master List length: ",len(master_list))
+            print("Master List length: ", len(master_list))
             P = [P1, P2]
         iteration = iteration + 1
     # Traverse in the data list for each new image
     # for image i, get all pairs till i-1 (because you have world coordinates for i-1)
-    for i in range(3,n+1):
+    for i in range(3, n + 1):
         # Store the world coordinates corresponding to each new image i (remember shape is features x 4)
-        X_i = np.empty([0,3])
-        # store the corresponding image i pixels in another array 
-        x_i = np.empty([0,2]) 
+        X_i = np.empty([0, 3])
+        # store the corresponding image i pixels in another array
+        x_i = np.empty([0, 2])
         # complete tringulation related to image i wrt all images j
         triangulate_j_list = []
         # for image i get images from 1 to i-1
-        for j in range(1,i):
+        for j in range(1, i):
             # obtain the index of the data list match images (j,i)
-            match_idx = (j-1)*(10-j)/2 + i-j-1
+            match_idx = (j - 1) * (10 - j) / 2 + i - j - 1
             # get the list matching[ji]
             print("Match idx", match_idx)
             dl = data_list[int(match_idx)]
             # get the uv indexes for j and i
-            uv_j, uv_i, uv_j_c, uv_i_c = SetData(dl,K)
+            uv_j, uv_i, uv_j_c, uv_i_c = SetData(dl, K)
             # Perform RANSAC to remove outliers
-            uv_j = uv_j.T[:,:2]
-            uv_i = uv_i.T[:,:2]
+            uv_j = uv_j.T[:, :2]
+            uv_i = uv_i.T[:, :2]
             print("Shape uv_j", uv_j.shape)
             # store indexes of array which need triangulation
             needs_triangulation_idxs_list = []
             # for each row in uv_j
-            for a,each_row in enumerate(uv_j):
+            for a, each_row in enumerate(uv_j):
                 # Flag to check if the point is already added in the master list
                 flag_a_in_ml = 0
                 # and each row in Master list
                 for each_Mrow in master_list:
                     # calculate the length of the Master list row
                     Mrow_len = len(each_Mrow)
-                    k=0
+                    k = 0
                     # traverse throgh all ids in the row and check if the row has the id j
-                    while(3 + 3*k + 1 < Mrow_len):
-                        if(each_Mrow[3+3*k+1] == j):
-                            if(each_Mrow[3+3*k+2]==each_row[0] and each_Mrow[3+3*k+3]==each_row[1]):
+                    while 3 + 3 * k + 1 < Mrow_len:
+                        if each_Mrow[3 + 3 * k + 1] == j:
+                            if (
+                                each_Mrow[3 + 3 * k + 2] == each_row[0]
+                                and each_Mrow[3 + 3 * k + 3] == each_row[1]
+                            ):
                                 flag_a_in_ml = 1
-                                m = k+1
+                                m = k + 1
                                 flag = 0
-                                while(3 + 3*m +1 < Mrow_len):
-                                    if(each_Mrow[3+3*k+1] == j):
+                                while 3 + 3 * m + 1 < Mrow_len:
+                                    if each_Mrow[3 + 3 * k + 1] == j:
                                         flag = 1
                                         break
-                                    m = m+1
-                                if(flag == 1):
+                                    m = m + 1
+                                if flag == 1:
                                     break
                                 each_Mrow.append(i)
-                                each_Mrow.append(uv_i[a,0])
-                                each_Mrow.append(uv_i[a,1])
-                                X_i = np.vstack([X_i,each_Mrow[:3]])
-                                x_i = np.vstack([x_i,uv_i[a]])
+                                each_Mrow.append(uv_i[a, 0])
+                                each_Mrow.append(uv_i[a, 1])
+                                X_i = np.vstack([X_i, each_Mrow[:3]])
+                                x_i = np.vstack([x_i, uv_i[a]])
                                 break
-                        k = k+1
-                if(flag_a_in_ml == 0):
-                    #store the index list in the matching list for which there is no world point
+                        k = k + 1
+                if flag_a_in_ml == 0:
+                    # store the index list in the matching list for which there is no world point
                     needs_triangulation_idxs_list.append(a)
             # print("Needs Triangulation len: ", len(needs_triangulation_idxs_list))
             # print("Needs triangulation list: ", needs_triangulation_idxs_list)
             triangulate_j_list.append(needs_triangulation_idxs_list)
-        
+
         # Calculate the P matrix
-        P_i,inlier_idxs = PnPRANSAC(X_i,x_i,K)
+        P_i, inlier_idxs = PnPRANSAC(X_i, x_i, K)
         print(P_i)
         print(len(inlier_idxs))
         # P_i = LinearPnP(X_i,x_i,K)
@@ -328,14 +311,11 @@ def main():
 
         #     # Store the world points, img ids and img pixels in master list (need to implement)
 
-
-
-    with open('./P2Data/Matches/master_list.txt', 'w', newline='') as file:
-        writer = csv.writer(file, delimiter=' ')
+    with open("./P2Data/Matches/master_list.txt", "w", newline="") as file:
+        writer = csv.writer(file, delimiter=" ")
         # Write each list as a row
         writer.writerows(master_list)
 
 
-                        
 if __name__ == "__main__":
     main()
