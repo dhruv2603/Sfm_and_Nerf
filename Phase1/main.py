@@ -4,16 +4,14 @@ import csv
 from helperFunctions import *
 import scipy.io as sio
 import matplotlib.pyplot as plt
-from functions import *
-from EstimateFundamentalMatrix import (
-    recoverPoseFromFundamental,
-    triangulatePoints,
-    init_optimization_variables,
-    cameraCalibrationCasADi,
-)
+from GetInlierRANSAC import getFundamentalMatRANSAC
+from EstimateFundamentalMatrix import getFundamentalMatrix
+from ExtractCameraPose import recoverPoseFromFundamental
 from LinearPnp import LinearPnP
 from PnPRANSAC import PnPRANSAC
-import cv2 as cvw
+from LinearTriangulation import triangulatePoints, LinearTriangulation
+import cv2 as cv2
+from NonlinearTriangulation import init_optimization_variables, cameraCalibrationCasADi
 
 
 def SetData(dl, K):
@@ -129,19 +127,19 @@ def main():
             P2 = K @ F_identity @ Identity @ T_2
 
             ## Triangulation based on our funcitons
-            # pts3D_4xN = triangulatePoints(
-            # points_A_normalized_inlier, points_B_normalized_inlier, P1, P2
-            # )
-            # pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
+            pts3D_4xN = triangulatePoints(
+                points_A_normalized_inlier, points_B_normalized_inlier, P1, P2
+            )
+            pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
 
             ## Triangulation based on cv functions
-            pts3D_4xN = cv2.triangulatePoints(
-                P1[0:3, 0:4],
-                P2[0:3, 0:4],
-                points_A_normalized_inlier[0:2, :],
-                points_B_normalized_inlier[0:2, :],
-            )  # OpenCV's Linear-Eigen triangl
-            pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
+            # pts3D_4xN = cv2.triangulatePoints(
+            #    P1[0:3, 0:4],
+            #    P2[0:3, 0:4],
+            #    points_A_normalized_inlier[0:2, :],
+            #    points_B_normalized_inlier[0:2, :],
+            # )  # OpenCV's Linear-Eigen triangl
+            # pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
 
             # Nonlinear Optimizer for translations, rotation and points in world
             x_init = init_optimization_variables(t_ransac, R_ransac, pts3D_4xN[0:3, :])

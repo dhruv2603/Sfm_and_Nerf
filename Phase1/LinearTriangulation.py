@@ -27,3 +27,40 @@ def LinearTriangulation(dl, K, R, C):
         if val > 0:
             count += 1
     return X_list, count
+
+
+def triangulatePoints(x1_h, x2_h, P1, P2):
+    """
+    Triangulates points using linear triangulation.
+
+    Parameters:
+        x1_h : (3, N) numpy array of homogeneous image coordinates from camera 1.
+        x2_h : (3, N) numpy array of homogeneous image coordinates from camera 2.
+        P1   : (3, 4) projection matrix for camera 1.
+        P2   : (3, 4) projection matrix for camera 2.
+
+    Returns:
+        X_4xN : (4, N) numpy array of homogeneous 3D coordinates.
+    """
+    N = x1_h.shape[1]
+    X_4xN = np.zeros((4, N))
+
+    for i in range(N):
+        # Construct the A matrix for the i-th point.
+        A = np.array(
+            [
+                x1_h[1, i] * P1[2, :] - P1[1, :],
+                P1[0, :] - x1_h[0, i] * P1[2, :],
+                x2_h[1, i] * P2[2, :] - P2[1, :],
+                P2[0, :] - x2_h[0, i] * P2[2, :],
+            ]
+        )
+
+        # Solve A * X = 0 using SVD.
+        _, _, Vh = np.linalg.svd(A)
+        X = Vh[-1, :]  # Last row of Vh corresponds to the smallest singular value.
+
+        # Store the homogeneous 3D point.
+        X_4xN[:, i] = X
+
+    return X_4xN
