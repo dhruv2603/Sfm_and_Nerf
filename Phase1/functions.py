@@ -4,6 +4,7 @@ from numpy import linalg as la
 import cv2
 from tqdm import tqdm
 from matplotlib import pyplot as plt
+import matplotlib.patches as mpatches
 
 
 def randomSampleCorrPoint(ptsA, ptsB, num_point=8):
@@ -303,3 +304,32 @@ def getFundamentalMatRANSAC(ptsA, ptsB, tol, num_sample=8, confidence=0.99):
             best_F = F
 
     return best_F, best_inlier
+
+
+def plot_banks(bank, name, location, include_classical=True):
+    n, m = bank.shape
+
+    # Create a figure with subplots
+    fig, axs = plt.subplots(n, m, figsize=(2 * m, 2 * n))
+    axs = np.ravel(axs)
+
+    # Loop over each image in the bank
+    for i in range(n):
+        for j in range(m):
+            subplot_idx = i * m + j
+            ax = axs[subplot_idx]
+
+            # Plot the image in grayscale
+            im = ax.imshow(bank[i, j], cmap="gray", interpolation="none")
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+    # Save the figure as a PDF
+    file_path = os.path.join(location, f"{name}.pdf")
+    plt.savefig(file_path, format="pdf", bbox_inches="tight")
+    plt.clf()
+    plt.close()
+
+    print(f"PDF with colorbar saved to: {file_path}")
+
+    return None

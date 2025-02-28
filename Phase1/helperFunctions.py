@@ -4,6 +4,7 @@ from natsort import natsorted
 from tqdm import tqdm
 import cv2
 from matplotlib import pyplot as plt
+from functions import plot_banks
 
 
 def sorttxtFiles(path):
@@ -222,4 +223,11 @@ def getMatchesNew(dl, idxs, n_imgs, id, path, name):
     cv2.imwrite(
         output_path + "/" + "pair_" + name + "_" + str(i) + str(j) + ".png", imgs
     )
+    empty_matrix_pb = np.empty((1, 1), dtype=object)
+    imgs_rgb = np.zeros((imgs.shape), dtype=np.uint8)
+    imgs_rgb[:, :, 0] = imgs[:, :, 2]
+    imgs_rgb[:, :, 2] = imgs[:, :, 0]
+    imgs_rgb[:, :, 1] = imgs[:, :, 1]
+    empty_matrix_pb[0, 0] = imgs_rgb
+    plot_banks(empty_matrix_pb, name, output_path)
     return None

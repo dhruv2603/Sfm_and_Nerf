@@ -11,6 +11,9 @@ from EstimateFundamentalMatrix import (
     cameraCalibrationCasADi,
 )
 import cv2 as cvw
+from LinearTriangulation import LinearTriangulation
+from EssentialMatrixFromFundamentalMatrix import EssentialMatrixFromFundamentalMatrix
+from ExtractCameraPose import ExtractCameraPose
 
 
 def SetData(dl, K):
@@ -165,6 +168,20 @@ def main():
             )  # OpenCV's Linear-Eigen triangl
             pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
 
+            E = EssentialMatrixFromFundamentalMatrix(K, F_ree)
+            R_l, C_l = ExtractCameraPose(E)
+
+            # Projection on the 3d world
+
+            pts3D_aux_0, aux_number_0 = LinearTriangulation(dl, K, R_l[0], (C_l[0]))
+            pts3D_aux_0 = np.array(pts3D_aux_0).T
+            pts3D_aux_1, aux_number_1 = LinearTriangulation(dl, K, R_l[1], (C_l[1]))
+            pts3D_aux_1 = np.array(pts3D_aux_1).T
+            pts3D_aux_2, aux_number_2 = LinearTriangulation(dl, K, R_l[2], C_l[2])
+            pts3D_aux_2 = np.array(pts3D_aux_2).T
+            pts3D_aux_3, aux_number_3 = LinearTriangulation(dl, K, R_l[3], C_l[3])
+            pts3D_aux_3 = np.array(pts3D_aux_3).T
+
             # Nonlinear Optimizer for translations, rotation and points in world
             x_init = init_optimization_variables(t_ransac, R_ransac, pts3D_4xN[0:3, :])
             x_vector_opt, x_trans_opt, R_quaternion_opt, distortion_opt = (
@@ -188,7 +205,6 @@ def main():
 
             ## Show results
             fig = plt.figure()
-
             # Add a 3D subplot
             ax = fig.add_subplot(111)
             plt.scatter(
@@ -198,20 +214,57 @@ def main():
                 color="green",
                 label="Dataset 3",
             )
+            # plt.scatter(
+            # pts3D_4xN_casadi[0, :],
+            # pts3D_4xN_casadi[2, :],
+            # s=1,
+            # color="blue",
+            # label="Dataset 3",
+            # )
+            plt.xlim(-20, 20)
+            plt.ylim(0, 30)
+            # Labeling the axes and adding a title
+            plt.xlabel("X")
+            plt.ylabel("Y")
+            plt.savefig("Triangulation_one_pose.pdf", format="pdf")
+
+            fig = plt.figure()
+            # Add a 3D subplot
+            ax = fig.add_subplot(111)
             plt.scatter(
-                pts3D_4xN_casadi[0, :],
-                pts3D_4xN_casadi[2, :],
+                pts3D_aux_0[0, :],
+                pts3D_aux_0[2, :],
+                s=2,
+                color="green",
+                label="Dataset 3",
+            )
+            plt.scatter(
+                pts3D_aux_1[0, :],
+                pts3D_aux_1[2, :],
+                s=1,
+                color="red",
+                label="Dataset 3",
+            )
+            plt.scatter(
+                pts3D_aux_2[0, :],
+                pts3D_aux_2[2, :],
                 s=1,
                 color="blue",
                 label="Dataset 3",
             )
-            plt.xlim(-20, 20)
-            plt.ylim(0, 30)
+            plt.scatter(
+                pts3D_aux_3[0, :],
+                pts3D_aux_3[2, :],
+                s=1,
+                color="black",
+                label="Dataset 3",
+            )
+            plt.xlim(-50, 50)
+            plt.ylim(-50, 50)
             # Labeling the axes and adding a title
-            plt.xlabel("X-axis")
-            plt.ylabel("Y-axis")
-            plt.title("2D Scatter Plot of Two Data Sets")
-            plt.savefig("scatter_plot.pdf", format="pdf")
+            plt.xlabel("X")
+            plt.ylabel("Z")
+            plt.savefig("Triangulation.pdf", format="pdf")
 
             print(R_ransac)
             print(R_quaternion_opt)
