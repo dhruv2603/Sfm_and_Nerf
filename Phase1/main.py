@@ -70,7 +70,9 @@ def main():
 
             # Compute sift features from the images
             ptsA, ptsB = get_features(n, img_n, DATA_DIR)
-            plotMatches(dl, n, img_n, DATA_DIR, ptsA.T, ptsB.T, "Verification")
+            ptsA = pixels_1.T
+            ptsB = pixels_2.T
+            plotMatches(dl, n, img_n, DATA_DIR, ptsA.T, ptsB.T, "Features")
 
             # Compute fundamental matrix
             # F_aux = getFundamentalMatrix(ptsA, ptsB, num_point=8)
@@ -82,7 +84,7 @@ def main():
                 ptsA,
                 ptsB,
                 cv2.FM_RANSAC,
-                ransacReprojThreshold=1.6,
+                ransacReprojThreshold=0.1,
                 confidence=0.99,
                 maxIters=5000,
             )
@@ -90,6 +92,22 @@ def main():
             # Get Re-estimate Fundamental matrix using only inliers
             inliersA_og = ptsA[mask.ravel() == 1]
             inliersB_og = ptsB[mask.ravel() == 1]
+
+            inlier_indices = np.where(mask.ravel() == 1)[0]
+            inliers_index = inlier_indices.tolist()
+
+            aux_everything_inlier_outliers = np.ones((mask.shape[0], mask.shape[1]))
+            everything_indices = np.where(aux_everything_inlier_outliers.ravel() == 1)[
+                0
+            ]
+            inliers_outliers_index = everything_indices.tolist()
+
+            getMatchesNew(
+                dl, inliers_index, n, img_n, DATA_DIR, "Features_after_ransac"
+            )
+            getMatchesNew(
+                dl, inliers_outliers_index, n, img_n, DATA_DIR, "Features_before_ransac"
+            )
             # F_ree, _ = getFundamentalMatRANSAC(
             #    ptsA=inliersA_og,
             #    ptsB=inliersB_og,
@@ -97,8 +115,6 @@ def main():
             #    num_sample=8,
             #    confidence=0.99,
             # )
-            print(ptsA)
-            print(inliersA_og.shape)
 
             ## Normalize data
             inliersA_og = np.vstack(
