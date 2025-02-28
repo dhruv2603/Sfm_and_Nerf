@@ -12,6 +12,7 @@ from EstimateFundamentalMatrix import (
     cameraCalibrationCasADi,
 )
 from LinearPnp import LinearPnP
+from PnPRANSAC import PnPRANSAC
 import cv2 as cvw
 
 
@@ -234,12 +235,17 @@ def main():
             master_list = np.hstack([pts3D_4xN_casadi.T,np.ones((inliersA_og.shape[0],1),dtype=int),inliersA_og,2*np.ones((inliersA_og.shape[0],1),dtype=int),inliersB_og])
             master_list = master_list.tolist()
             print("Master List length: ",len(master_list))
-
+            P = [P1, P2]
         iteration = iteration + 1
     # Traverse in the data list for each new image
     # for image i, get all pairs till i-1 (because you have world coordinates for i-1)
     for i in range(3,n+1):
-        # if(i==3):
+        # Store the world coordinates corresponding to each new image i (remember shape is features x 4)
+        X_i = np.empty([0,3])
+        # store the corresponding image i pixels in another array 
+        x_i = np.empty([0,2]) 
+        # complete tringulation related to image i wrt all images j
+        triangulate_j_list = []
         # for image i get images from 1 to i-1
         for j in range(1,i):
             # obtain the index of the data list match images (j,i)
@@ -249,17 +255,17 @@ def main():
             dl = data_list[int(match_idx)]
             # get the uv indexes for j and i
             uv_j, uv_i, uv_j_c, uv_i_c = SetData(dl,K)
+            # Perform RANSAC to remove outliers
             uv_j = uv_j.T[:,:2]
             uv_i = uv_i.T[:,:2]
-            uv_j_c = uv_j_c.T[:,:2]
-            uv_i_c = uv_i_c.T[:,:2]
             print("Shape uv_j", uv_j.shape)
             # store indexes of array which need triangulation
-            needs_traingulation_idxs_list = []
+            needs_triangulation_idxs_list = []
             # for each row in uv_j
             for a,each_row in enumerate(uv_j):
-                # and each row in Master list
+                # Flag to check if the point is already added in the master list
                 flag_a_in_ml = 0
+                # and each row in Master list
                 for each_Mrow in master_list:
                     # calculate the length of the Master list row
                     Mrow_len = len(each_Mrow)
@@ -269,10 +275,6 @@ def main():
                         if(each_Mrow[3+3*k+1] == j):
                             if(each_Mrow[3+3*k+2]==each_row[0] and each_Mrow[3+3*k+3]==each_row[1]):
                                 flag_a_in_ml = 1
-                                print("Master list u: ",each_Mrow[3+3*k+2])
-                                print("master_list v:", each_Mrow[3+3*k+3])
-                                print("Image j u: ", each_row[0])
-                                print("image j v: ", each_row[1])
                                 m = k+1
                                 flag = 0
                                 while(3 + 3*m +1 < Mrow_len):
@@ -285,13 +287,49 @@ def main():
                                 each_Mrow.append(i)
                                 each_Mrow.append(uv_i[a,0])
                                 each_Mrow.append(uv_i[a,1])
+                                X_i = np.vstack([X_i,each_Mrow[:3]])
+                                x_i = np.vstack([x_i,uv_i[a]])
                                 break
-
                         k = k+1
                 if(flag_a_in_ml == 0):
                     #store the index list in the matching list for which there is no world point
-                    needs_traingulation_idxs_list.append(a)
-    print(master_list)
+                    needs_triangulation_idxs_list.append(a)
+            # print("Needs Triangulation len: ", len(needs_triangulation_idxs_list))
+            # print("Needs triangulation list: ", needs_triangulation_idxs_list)
+            triangulate_j_list.append(needs_triangulation_idxs_list)
+        
+        # Calculate the P matrix
+        P_i,inlier_idxs = PnPRANSAC(X_i,x_i,K)
+        print(P_i)
+        print(len(inlier_idxs))
+        # P_i = LinearPnP(X_i,x_i,K)
+        P.append(P_i)
+
+        ## Uncomment the below lines
+        # # Triangulate to get new world points
+        # for j in range(1,i):
+        #     # obtain the index of the data list match images (j,i)
+        #     match_idx = (j-1)*(10-j)/2 + i-j-1
+        #     # get the list matching[ji]
+        #     print("Match idx", match_idx)
+        #     dl = data_list[int(match_idx)]
+        #     # get the uv indexes for j and i
+        #     uv_j, uv_i, uv_j_c, uv_i_c = SetData(dl,K)
+        #     # Perform RANSAC to remove outliers (need to implement)
+
+        #     # Perform triangulation to get new world points
+        #     print(triangulate_j_list[j-1])
+        #     AA = uv_j[:,triangulate_j_list[j-1]]
+        #     print(type(AA))
+        #     print(AA)
+        #     # BB = uv_i[:,triangulate_j_list[j-1]]
+        #     pts3D_4xN = triangulatePoints(uv_j[:,triangulate_j_list[j-1]], uv_i[:,triangulate_j_list[j-1]], P[j-1], P[i-1])
+        #     # Perform non-linear triangulation (need to implement)
+
+        #     # Store the world points, img ids and img pixels in master list (need to implement)
+
+
+
     with open('./P2Data/Matches/master_list.txt', 'w', newline='') as file:
         writer = csv.writer(file, delimiter=' ')
         # Write each list as a row
