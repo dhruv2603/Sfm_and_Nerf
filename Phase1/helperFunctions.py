@@ -72,6 +72,62 @@ def readFiles(file_names, data_path):
 
     return nFeatures, data_list
 
+def SetData(dl, K):
+    """
+    Input : (N,4) size datalist of corresponding images
+    Output: (3,N) size of uv image arrays for both images
+    """
+    sz = len(dl)
+    X = np.ones((3, sz))
+    U = np.ones((3, sz))
+
+    X_c = np.ones((3, sz))
+    U_c = np.ones((3, sz))
+    K_inv = np.linalg.inv(K)
+    for k in range(sz):
+        X[0, k] = float(dl[k][0])
+        X[1, k] = float(dl[k][1])
+
+        U[0, k] = float(dl[k][2])
+        U[1, k] = float(dl[k][3])
+
+        # Points respect to the center of the image
+        X_c[:, k] = K_inv @ X[:, k]
+        U_c[:, k] = K_inv @ U[:, k]
+    return X, U, X_c, U_c
+
+def homography_RANSAC(pixels1, pixels2, N = 2000, tau = 10):
+    best_inliers = []
+    
+    print("Running RANSAC Iterations for Homography")
+    for i in tqdm(range(N)):
+        # Randomly select 4 points
+        idx = np.random.choice(len(pixels1), 4, replace=False)
+        rand_pixels_1 = pixels1[idx]
+        rand_pixels_2 = pixels2[idx]
+        
+        
+        rand_pixels_1 = np.float32([rand_pixels_1]).reshape(-1, 1, 2)
+        rand_pixels_2 = np.float32([rand_pixels_2]).reshape(-1, 1, 2)
+        
+        # Compute the Perspective Transform
+        H = cv2.getPerspectiveTransform(rand_pixels_1, rand_pixels_2)
+        
+        # Compute the inliers
+        inliers = []
+        for j, (pt1, pt2) in enumerate(zip(pixels1, pixels2)):
+            pt1 = np.append(pt1, 1)
+            pt2 = np.append(pt2, 1)
+            est_pt2 = H @ pt1
+            est_pt2 = est_pt2 / est_pt2[-1]
+            e = np.linalg.norm(pt2 - est_pt2)
+            if e < tau:
+                inliers.append(j)
+        
+        if len(inliers) > len(best_inliers):
+            best_inliers = inliers
+    
+    return best_inliers
 
 def getMatches(dl, idxs, n_imgs, id, path):
     """
@@ -92,7 +148,7 @@ def getMatches(dl, idxs, n_imgs, id, path):
     img1 = cv2.imread(os.path.join(path, str(i) + ".png"))
     img2 = cv2.imread(os.path.join(path, str(j) + ".png"))
     imgs = np.hstack((img1, img2))
-    for idx in range(len(dl)):
+    for idx in tqdm(range(len(dl))):
         color1 = (0, 0, 255)
         if idx in idxs:
             color2 = (0, 255, 0)
