@@ -7,6 +7,7 @@ import time
 import math
 from scipy.spatial.transform import Rotation as R
 import cv2 as cv2
+from matplotlib import pyplot as plt
 from helperFunctions import plotMatches
 
 
@@ -481,3 +482,70 @@ def show_projection_image(
     output_path = os.path.join(DATA_DIR, "image_projection")
     os.makedirs(output_path, exist_ok=True)
     cv2.imwrite(output_path + "/" + name + "_" + "image_2" + ".png", img2)
+
+
+def plotLinAndNonlinTri(
+        C_opt,
+        R_quaternion_opt,
+        X_4xN_casadi,
+        K,
+        DATA_DIR, 
+        data_list,
+        n,
+        inliers,
+        R,
+        C,
+        X_4N):
+    # Nonlinear Triangulation visualization
+    show_projection(
+        C_opt,
+        R_quaternion_opt,
+        X_4xN_casadi,
+        K,
+        DATA_DIR,
+        data_list[0],
+        n,
+        0,
+        inliers,
+        "Non-linear",
+    )
+
+    # Linear Triangulation visualization
+    show_projection(
+        - R.T @ C,
+        R,
+        X_4N.T,
+        K,
+        DATA_DIR,
+        data_list[0],
+        n,
+        0,
+        inliers,
+        "linear",
+    )
+    ## Show results
+    fig = plt.figure()
+
+    # Add a 3D subplot
+    ax = fig.add_subplot(111)
+    plt.scatter(
+        X_4N.T[0, :],
+        X_4N.T[2, :],
+        s=2,
+        color="green",
+        label="Dataset 3",
+    )
+    plt.scatter(
+        X_4xN_casadi[0, :],
+        X_4xN_casadi[2, :],
+        s=1,
+        color="blue",
+        label="Dataset 3",
+    )
+    plt.xlim(-20, 20)
+    plt.ylim(0, 30)
+    # Labeling the axes and adding a title
+    plt.xlabel("X-axis")
+    plt.ylabel("Y-axis")
+    plt.title("2D Scatter Plot of Two Data Sets")
+    plt.savefig("scatter_plot.pdf", format="pdf")

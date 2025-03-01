@@ -143,7 +143,7 @@ def getFundamentalMatRANSAC(ptsA, ptsB, tol, num_sample=8, confidence=0.99):
 
     return best_F, best_inlier
 
-def GetInlierRANSAC(pixels1,pixels2,homo_inliers,N=2000,tau=0.5):
+def GetInlierRANSAC(pixels1,pixels2,homo_inliers,N=2000,tau=5):
     """
     Get the inliers using RANSAC with the Fundamental Matrix equation.
     Inputs: pixels1 - (M,2) array of pixel values of image 1

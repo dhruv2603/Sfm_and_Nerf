@@ -5,7 +5,6 @@ from tqdm import tqdm
 import cv2
 from matplotlib import pyplot as plt
 
-
 def sorttxtFiles(path):
     """
     The path contains png and txt files, return the matching file names and the calibration path
@@ -144,9 +143,9 @@ def getMatches(dl, idxs, n_imgs, id, path):
         id = id - n_imgs + 1
         i += 1
         n_imgs -= 1
-    j = i + 1 + id
-    img1 = cv2.imread(os.path.join(path, str(i) + ".png"))
-    img2 = cv2.imread(os.path.join(path, str(j) + ".png"))
+    j = i + 1 + int(id)
+    img1 = cv2.imread(os.path.join(path, str(int(i)) + ".png"))
+    img2 = cv2.imread(os.path.join(path, str(int(j)) + ".png"))
     imgs = np.hstack((img1, img2))
     for idx in tqdm(range(len(dl))):
         color1 = (0, 0, 255)
@@ -159,10 +158,10 @@ def getMatches(dl, idxs, n_imgs, id, path):
             cv2.circle(imgs, pt2, 2, color1, -1)
         else:
             None
-        output_path = os.path.join(path, "RANSAC_Imgs")
-        if not os.path.exists:
-            os.makedirs(output_path)
-        cv2.imwrite(output_path + "pair_" + str(i) + str(j) + ".png", imgs)
+    output_path = os.path.join(path, "RANSAC_Imgs")
+    if not os.path.exists:
+        os.makedirs(output_path)
+    cv2.imwrite(output_path + "pair_" + str(i) + str(j) + ".png", imgs)
 
 def get_epipoles(F):
     """
@@ -337,3 +336,57 @@ def getMatchesNew(dl, idxs, n_imgs, id, path, name):
         output_path + "/" + "pair_" + name + "_" + str(i) + str(j) + ".png", imgs
     )
     return None
+
+def get_idx(i,j):
+    """
+    From image numbers i and j, return the location of the corresponding list in the list of lists
+    Inputs: i,j
+    Output: idx
+    """
+    return (j - 1) * (10 - j) / 2 + i - j - 1
+
+def checkNewFeatures(
+        uv_i,
+        uv_j,
+        master_list,
+        i,j,
+        X_i,
+        x_i,
+        needs_triangulation_idxs_list
+        ):
+    for a, each_row in enumerate(uv_j):
+        # Flag to check if the point is already added in the master list
+        flag_a_in_ml = 0
+        # and each row in Master list
+        for each_Mrow in master_list:
+            # calculate the length of the Master list row
+            Mrow_len = len(each_Mrow)
+            k = 0
+            # traverse throgh all ids in the row and check if the row has the id j
+            while 3 + 3 * k + 1 < Mrow_len:
+                if each_Mrow[3 + 3 * k + 1] == j:
+                    if (
+                        each_Mrow[3 + 3 * k + 2] == each_row[0]
+                        and each_Mrow[3 + 3 * k + 3] == each_row[1]
+                    ):
+                        flag_a_in_ml = 1
+                        m = k + 1
+                        flag = 0
+                        while 3 + 3 * m + 1 < Mrow_len:
+                            if each_Mrow[3 + 3 * k + 1] == j:
+                                flag = 1
+                                break
+                            m = m + 1
+                        if flag == 1:
+                            break
+                        each_Mrow.append(i)
+                        each_Mrow.append(uv_i[a, 0])
+                        each_Mrow.append(uv_i[a, 1])
+                        X_i = np.vstack([X_i, each_Mrow[:3]])
+                        x_i = np.vstack([x_i, uv_i[a]])
+                        break
+                k = k + 1
+        if flag_a_in_ml == 0:
+            # store the index list in the matching list for which there is no world point
+            needs_triangulation_idxs_list.append(a)
+    return X_i,x_i,master_list, needs_triangulation_idxs_list
