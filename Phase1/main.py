@@ -13,6 +13,7 @@ from DisambiguateCameraPose import DisambiguateCameraPose
 from NonlinearTriangulation import init_optimization_variables, cameraCalibrationCasADi, init_optimization_pose, cameraCalibrationPose
 from aux_functions import show_projection, show_projection_image, plotLinAndNonlinTri
 from PnPRANSAC import PnPRANSAC
+from plot_results import plot_3d_results
 # from LinearPnp import LinearPnP
 # import cv2 as cv2
 # from aux_functions import projection_values
@@ -121,7 +122,7 @@ def main():
     """
     # Nonlinear Optimizer for translations, rotation and points in world
     # Initial values
-    x_init = init_optimization_variables(C, R, X.T)
+    x_init = init_optimization_variables(C,R, X.T)
     # Points from the optimizer
     X_opt, C_opt, R_quaternion_opt, distortion_opt = (
         cameraCalibrationCasADi(
@@ -171,6 +172,7 @@ def main():
     master_list = master_list.tolist()
     print("Master List length: ", len(master_list))
     print("R optimized for non-linear: ", R_quaternion_opt)
+    print("T optimized for non-linear: ", C_opt)
     R_list = [R0,R_quaternion_opt]
     C_list = [C0, C_opt]
     
@@ -178,6 +180,8 @@ def main():
     image_points = []
     world_points = []
     inliers_total = []
+    R_init = R_quaternion_opt
+    t_init = C_opt
 
     # Traverse in the data list for each new image
     # for image i, get all pairs till i-1 (because you have world coordinates for i-1)
@@ -225,12 +229,12 @@ def main():
             triangulate_j_list.append(needs_triangulation_idxs_list)
 
         # Calculate the P matrix
-        P_i, inlier_idxs, R_i, t_i = PnPRANSAC(X_i, x_i, K)
+        inlier_idxs, R_i, t_i = PnPRANSAC(X_i, x_i, K)
         print("R RANSAC: ",R_i)
         print("C RANSAC: ",t_i)
         print("No. of inliers: ", len(inlier_idxs))
-        R_list.append(R_i)
-        C_list.append(t_i)
+        # R_list.append(R_i)
+        # C_list.append(t_i)
         image_points.append(x_i)
         world_points.append(X_i)
         inliers_total.append(inlier_idxs)
@@ -239,7 +243,7 @@ def main():
             (X_i[inlier_idxs, :].T, np.ones((1, X_i[inlier_idxs, :].shape[0])))
         )
         ## initial Condition
-        x_init = init_optimization_pose(C_list[-1], R_list[-1])
+        x_init = init_optimization_pose(t_init, R_init)
 
         # Optimization problem
         t_new, R_new = cameraCalibrationPose(
@@ -249,83 +253,17 @@ def main():
         R_list.append(R_new)
         print("Non linear R :", R_new)
         print("Non linear C", t_new)
+        print("Check")
+        print(-R_init.T @ t_init)
+        t_init = t_new
+        R_init = R_new
+
         # x_init = init_optimization_variables(x_trans_opt, R_quaternion_opt, X_i)
 
     print(-R_list[1].T @ C_list[1])
     print(-R_list[2].T @ C_list[2])
-    #################################################
-    #     ## Uncomment the below lines
-    #     # # Triangulate to get new world points
-    #     # for j in range(1,i):
-    #     #     # obtain the index of the data list match images (j,i)
-    #     #     match_idx = (j-1)*(10-j)/2 + i-j-1
-    #     #     # get the list matching[ji]
-    #     #     print("Match idx", match_idx)
-    #     #     dl = data_list[int(match_idx)]
-    #     #     # get the uv indexes for j and i
-    #     #     uv_j, uv_i, uv_j_c, uv_i_c = SetData(dl,K)
-    #     #     # Perform RANSAC to remove outliers (need to implement)
 
-    #     #     # Perform triangulation to get new world points
-    #     #     print(triangulate_j_list[j-1])
-    #     #     AA = uv_j[:,triangulate_j_list[j-1]]
-    #     #     print(type(AA))
-    #     #     print(AA)
-    #     #     # BB = uv_i[:,triangulate_j_list[j-1]]
-    #     #     pts3D_4xN = triangulatePoints(uv_j[:,triangulate_j_list[j-1]], uv_i[:,triangulate_j_list[j-1]], P[j-1], P[i-1])
-    #     #     # Perform non-linear triangulation (need to implement)
-
-    #     #     # Store the world points, img ids and img pixels in master list (need to implement)
-
-    # with open("./P2Data/Matches/master_list.txt", "w", newline="") as file:
-    #     writer = csv.writer(file, delimiter=" ")
-    #     # Write each list as a row
-    #     writer.writerows(master_list)
-
-    # R_total = np.array(R_total)
-    # t_total = np.array(t_total)
-    # # print(R_total[0, :, :])
-    # print((t_total[0, :]))
-    # print(R_total[0, :, :].T @ (-t_total[0, :]))
-    # print(R_quaternion_opt.T @ (-x_trans_opt))
-    # # print(R_ransac.T @ (-t_ransac))
-
-    # world_points_3 = np.vstack(
-    #     (world_points[0].T, np.ones((1, world_points[0].shape[0])))
-    # )
-
-    # # creating new points
-
-    # data_list_12 = np.vstack((np.array(data_list[1]), np.array(data_list[4]))).tolist()
-
-    # show_projection_image(
-    #     t_total[0, :],
-    #     R_total[0, :, :],
-    #     world_points_3,
-    #     K,
-    #     DATA_DIR,
-    #     data_list[1],
-    #     n,
-    #     img_n,
-    #     inliers_total[0],
-    #     "Linear 3",
-    #     3,
-    # )
-
-    # show_projection_image(
-    #     x_trans_opt,
-    #     R_quaternion_opt,
-    #     pts3D_4xN_casadi,
-    #     K,
-    #     DATA_DIR,
-    #     data_list[0],
-    #     n,
-    #     img_n,
-    #     inliers_index,
-    #     "Nolinear 2",
-    #     2,
-    # )
-
+    plot_3d_results(C_list[1:], R_list[1:], X_4xN_casadi)
 
 if __name__ == "__main__":
     main()

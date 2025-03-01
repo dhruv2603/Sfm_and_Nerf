@@ -14,12 +14,23 @@ def LinearPnP(X_i, x_i, K):
     Outputs:R  - Rotation Matrix
             C  - Camera center wrt to world frame
     """
-    x_i_homo = np.hstack((x_i, np.ones((x_i.shape[0], 1))))
+    if x_i.shape[1] == 2:
+        x_i_homo = np.hstack((x_i, np.ones((x_i.shape[0], 1))))
+    else:
+        x_i_homo = x_i
+    
+    # Convert world points to homogeneous coordinates
+    if X_i.shape[1] == 3:
+        X_i_homo = np.hstack((X_i, np.ones((X_i.shape[0], 1))))
+    else:
+        X_i_homo = X_i
+
     img_x_i = np.linalg.inv(K) @ x_i_homo.T
     norm_x_i = (img_x_i / img_x_i[2, :]).T
-    # norm_x_i = img_x_i.T
+
     A = np.empty([0, 12])
     I = np.eye(3)
+    
     for i, data in enumerate(x_i_homo):
         # for i, data in enumerate(norm_x_i):
         u = float(data[0])
@@ -34,24 +45,20 @@ def LinearPnP(X_i, x_i, K):
             ]
         )
         A = np.vstack((A, row))
+
     _, _, V = scipy.linalg.svd(A)
     P = V[-1]
     P = np.reshape(P, (3, 4))
-    R_init = np.linalg.inv(K) @ P[:, :3]
-    # R_init = P[:, :3]
+
+    R_init = P[:, :3]
+    T = P[:,3]
     Ur, Dr, Vr = scipy.linalg.svd(R_init)
     R = np.matmul(Ur, Vr)
     gamma = Dr[0]
-    # T = P[:,3]
     if np.linalg.det(R) < 0:
         R = -R
-        # T = -T
-        C = -np.linalg.inv(K) @ P[:, 3] / gamma
-        # C = P[:, 3] / gamma
-    else:
-        R = R
-        # T = -T
-        C = np.linalg.inv(K) @ P[:, 3] / gamma
-        # C = P[:, 3] / gamma
+        T = -T
+        
+    C = -R.T @ T
 
     return R, C
