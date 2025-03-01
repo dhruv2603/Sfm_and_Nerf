@@ -5,7 +5,7 @@ import random
 from LinearPnp import LinearPnP
 
 
-def PnPRANSAC(X_i, x_i, K, N=5000, Tau=10):
+def PnPRANSAC(X_i, x_i, K, N=5000, Tau=30):
     """
     Compute RANSAC for the new image by calculating the reprojection error.
     Get the inlier points with repect to the world coordinates.

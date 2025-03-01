@@ -101,3 +101,45 @@ def conv2HomogeneousCor(ptsA, ptsB):
         ptsB_homo = np.pad(ptsB, [(0, 0), (0, 1)], "constant", constant_values=1.0)
 
     return np.float64(ptsA_homo), np.float64(ptsB_homo)
+
+
+def normalizationMatrix(pts):
+    mean = np.mean(pts, axis=0)
+    std = np.std(pts)
+    Norm_Mat = np.array(
+        [[1 / std, 0, -mean[0] / std], [0, 1 / std, -mean[1] / std], [0, 0, 1]]
+    )
+    normalized_points = np.hstack((pts, np.ones((pts.shape[0], 1))))
+    normalized_points = (Norm_Mat @ normalized_points.T).T
+    return normalized_points, Norm_Mat
+
+
+def EstimateFundamentalMatrix(pixels_1, pixels_2):
+    """
+    Estimate the funcdamental matrix
+    Inputs: pixels_1 - (8,2) matrix of pixel values of the features in image 1
+            pixels_2 - (8,2) matrix of pixel values of the features in image 2
+    Output: F        - The fundamental matrix
+    """
+
+    norm_pixels_1, M1 = normalizationMatrix(pixels_1)
+    norm_pixels_2, M2 = normalizationMatrix(pixels_2)
+
+    x_i, y_i = norm_pixels_1[:, 0], norm_pixels_1[:, 1]
+
+    x_j, y_j = norm_pixels_2[:, 0], norm_pixels_2[:, 1]
+
+    ones = np.ones(x_i.shape[0])
+    A = [x_i * x_j, y_i * x_j, x_j, x_i * y_j, y_i * y_j, y_j, x_i, y_i, ones]
+    A = np.vstack(A).T
+    U, sigma, V = np.linalg.svd(A)
+    f = V[np.argmin(sigma), :]
+    f = f.reshape((3, 3))
+    Uf, Df, Vf = np.linalg.svd(f)
+    Df[-1] = 0
+    F = Uf @ np.diag(Df) @ Vf
+
+    F = M2.T @ F @ M1
+    F = F / F[2, 2]
+
+    return F

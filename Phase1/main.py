@@ -4,37 +4,22 @@ import csv
 from helperFunctions import *
 import scipy.io as sio
 import matplotlib.pyplot as plt
-from GetInlierRANSAC import getFundamentalMatRANSAC
+from GetInlierRANSAC import getFundamentalMatRANSAC, GetInlierRANSAC
 from EstimateFundamentalMatrix import getFundamentalMatrix
 from ExtractCameraPose import recoverPoseFromFundamental
 from LinearPnp import LinearPnP
 from PnPRANSAC import PnPRANSAC
 from LinearTriangulation import triangulatePoints, LinearTriangulation
 import cv2 as cv2
-from NonlinearTriangulation import init_optimization_variables, cameraCalibrationCasADi
+from NonlinearTriangulation import (
+    init_optimization_variables,
+    cameraCalibrationCasADi,
+    init_optimization_pose,
+    cameraCalibrationPose,
+)
 from aux_functions import projection_values
 from aux_functions import show_projection, show_projection_image
-
-
-def SetData(dl, K):
-    sz = len(dl)
-    X = np.ones((3, sz))
-    U = np.ones((3, sz))
-
-    X_c = np.ones((3, sz))
-    U_c = np.ones((3, sz))
-    K_inv = np.linalg.inv(K)
-    for k in range(sz):
-        X[0, k] = float(dl[k][0])
-        X[1, k] = float(dl[k][1])
-
-        U[0, k] = float(dl[k][2])
-        U[1, k] = float(dl[k][3])
-
-        # Points respect to the center of the image
-        X_c[:, k] = K_inv @ X[:, k]
-        U_c[:, k] = K_inv @ U[:, k]
-    return X, U, X_c, U_c
+from helperFunctions import SetData, homography_RANSAC
 
 
 def main():
@@ -71,7 +56,7 @@ def main():
             tol = 1
 
             # Compute sift features from the images
-            ptsA, ptsB = get_features(n, img_n, DATA_DIR)
+            # ptsA, ptsB = get_features(n, img_n, DATA_DIR)
             # plotMatches(dl, n, img_n, DATA_DIR, pixels_1, pixels_2, "Verification")
 
             # Compute fundamental matrix based on our functions
@@ -135,15 +120,6 @@ def main():
                 points_A_normalized_inlier, points_B_normalized_inlier, P1, P2
             )
             pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
-
-            ## Triangulation based on cv functions
-            # pts3D_4xN = cv2.triangulatePoints(
-            #    P1[0:3, 0:4],
-            #    P2[0:3, 0:4],
-            #    points_A_normalized_inlier[0:2, :],
-            #    points_B_normalized_inlier[0:2, :],
-            # )  # OpenCV's Linear-Eigen triangl
-            # pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
 
             # Nonlinear Optimizer for translations, rotation and points in world
             x_init = init_optimization_variables(t_ransac, R_ransac, pts3D_4xN[0:3, :])
@@ -331,32 +307,6 @@ def main():
         world_points.append(X_i)
         inliers_total.append(inlier_idxs)
 
-        # Try to optimze based on the previous rotations and translations
-        # x_init = init_optimization_variables(x_trans_opt, R_quaternion_opt, X_i)
-
-        ## Uncomment the below lines
-        # # Triangulate to get new world points
-        # for j in range(1,i):
-        #     # obtain the index of the data list match images (j,i)
-        #     match_idx = (j-1)*(10-j)/2 + i-j-1
-        #     # get the list matching[ji]
-        #     print("Match idx", match_idx)
-        #     dl = data_list[int(match_idx)]
-        #     # get the uv indexes for j and i
-        #     uv_j, uv_i, uv_j_c, uv_i_c = SetData(dl,K)
-        #     # Perform RANSAC to remove outliers (need to implement)
-
-        #     # Perform triangulation to get new world points
-        #     print(triangulate_j_list[j-1])
-        #     AA = uv_j[:,triangulate_j_list[j-1]]
-        #     print(type(AA))
-        #     print(AA)
-        #     # BB = uv_i[:,triangulate_j_list[j-1]]
-        #     pts3D_4xN = triangulatePoints(uv_j[:,triangulate_j_list[j-1]], uv_i[:,triangulate_j_list[j-1]], P[j-1], P[i-1])
-        #     # Perform non-linear triangulation (need to implement)
-
-        #     # Store the world points, img ids and img pixels in master list (need to implement)
-
     with open("./P2Data/Matches/master_list.txt", "w", newline="") as file:
         writer = csv.writer(file, delimiter=" ")
         # Write each list as a row
@@ -364,33 +314,179 @@ def main():
 
     R_total = np.array(R_total)
     t_total = np.array(t_total)
-    # print(R_total[0, :, :])
-    print((t_total[0, :]))
-    print(R_total[0, :, :].T @ (-t_total[0, :]))
-    print(R_quaternion_opt.T @ (-x_trans_opt))
-    # print(R_ransac.T @ (-t_ransac))
 
-    world_points_3 = np.vstack(
-        (world_points[0].T, np.ones((1, world_points[0].shape[0])))
+    # Init Orientations and translation for the optimizer
+    translation_init = x_trans_opt
+    rotation_init = R_quaternion_opt
+
+    # save poses
+    tranlation_total = []
+    tranlation_total.append(x_trans_opt)
+    orientation_total = []
+    orientation_total.append(R_quaternion_opt)
+
+    for k in range(0, len(image_points)):
+        world_points_data = np.vstack(
+            (world_points[k].T, np.ones((1, world_points[k].shape[0])))
+        )
+
+        ## Optimization image 3 rotationa and translation
+        x_init = init_optimization_pose(translation_init, rotation_init)
+        t_new, R_new = cameraCalibrationPose(
+            image_points[k].T, K, x_init, world_points_data[0:3, :]
+        )
+        tranlation_total.append(t_new)
+        orientation_total.append(R_new)
+
+        translation_init = t_new
+        rotation_init = R_new
+    camera_initial_rotation = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]])
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    ax.set_title("Multiple 3D Frames")
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+    ax.set_xlim([-5, 5])
+    ax.set_ylim([-0, 10])
+    ax.set_zlim([-5, 5])
+
+    origin = np.array([0, 0, 0])
+    global_x = np.array([1, 0, 0])
+    global_y = np.array([0, 1, 0])
+    global_z = np.array([0, 0, 1])
+
+    # --- Plot the global frame (red, green, blue) at the origin ---
+    ax.quiver(
+        origin[0],
+        origin[1],
+        origin[2],
+        global_x[0],
+        global_x[1],
+        global_x[2],
+        length=1,
+        color="red",
+    )
+    ax.quiver(
+        origin[0],
+        origin[1],
+        origin[2],
+        global_y[0],
+        global_y[1],
+        global_y[2],
+        length=1,
+        color="green",
+    )
+    ax.quiver(
+        origin[0],
+        origin[1],
+        origin[2],
+        global_z[0],
+        global_z[1],
+        global_z[2],
+        length=1,
+        color="blue",
     )
 
-    # creating new points
-
-    data_list_12 = np.vstack((np.array(data_list[1]), np.array(data_list[4]))).tolist()
-
-    show_projection_image(
-        t_total[0, :],
-        R_total[0, :, :],
-        world_points_3,
-        K,
-        DATA_DIR,
-        data_list[1],
-        n,
-        img_n,
-        inliers_total[0],
-        "Linear 3",
-        3,
+    # --- Plot the "initial camera" frame (camera_initial_rotation) ---
+    #   We'll call this "Camera 1"
+    ax.quiver(
+        origin[0],
+        origin[1],
+        origin[2],
+        camera_initial_rotation[0, 0],
+        camera_initial_rotation[1, 0],
+        camera_initial_rotation[2, 0],
+        length=0.5,
+        color="red",
     )
+    ax.quiver(
+        origin[0],
+        origin[1],
+        origin[2],
+        camera_initial_rotation[0, 1],
+        camera_initial_rotation[1, 1],
+        camera_initial_rotation[2, 1],
+        length=0.5,
+        color="green",
+    )
+    ax.quiver(
+        origin[0],
+        origin[1],
+        origin[2],
+        camera_initial_rotation[0, 2],
+        camera_initial_rotation[1, 2],
+        camera_initial_rotation[2, 2],
+        length=0.5,
+        color="blue",
+    )
+
+    # Label the initial camera frame near the origin
+    ax.text(
+        0, 0, 0, "Camera 1", color="black", fontsize=8
+    )  # x,y,z position in 3D  # the text
+
+    # --- Now loop over subsequent frames and label them: Camera 2, Camera 3, etc. ---
+    for k in range(len(orientation_total)):
+        # The position of the camera in world coords
+        points = (
+            camera_initial_rotation @ orientation_total[k].T @ (-tranlation_total[k])
+        )
+
+        # The rotation in world coords
+        full_rotation = camera_initial_rotation @ orientation_total[k]
+
+        # Plot each camera’s local axes
+        ax.quiver(
+            points[0],
+            points[1],
+            points[2],
+            full_rotation[0, 0],
+            full_rotation[1, 0],
+            full_rotation[2, 0],
+            length=0.5,
+            color="red",
+        )
+        ax.quiver(
+            points[0],
+            points[1],
+            points[2],
+            full_rotation[0, 1],
+            full_rotation[1, 1],
+            full_rotation[2, 1],
+            length=0.5,
+            color="green",
+        )
+        ax.quiver(
+            points[0],
+            points[1],
+            points[2],
+            full_rotation[0, 2],
+            full_rotation[1, 2],
+            full_rotation[2, 2],
+            length=0.5,
+            color="blue",
+        )
+
+        # Label each subsequent camera frame:
+        camera_label = f"Camera {k + 2}"
+        ax.text(
+            points[0], points[1], points[2], camera_label, color="black", fontsize=8
+        )
+
+    # --- Plot the 3D points (blue spheres) ---
+    points_projected_to_world = camera_initial_rotation @ pts3D_4xN_casadi[0:3, :] * 0.5
+    ax.scatter(
+        points_projected_to_world[0, :],
+        points_projected_to_world[1, :],
+        points_projected_to_world[2, :],
+        color="blue",
+        marker="o",
+        s=5,
+    )
+    ax.view_init(elev=90, azim=-90)
+
+    plt.show()
 
     show_projection_image(
         x_trans_opt,
