@@ -222,11 +222,7 @@ def main():
     plt.title("2D Scatter Plot of Two Data Sets")
     plt.savefig("scatter_plot.pdf", format="pdf")
 
-    print("Type world: ", type(X_4xN_casadi))
-    print(inliers)
     aux = uv_1[:2, :].T[inliers]
-    print(aux.shape)
-    print(X_4xN_casadi.shape)
     # Array with values:
     # [World coordinate, img_id, u, v, img_id, u, v]
     # stacked one below the other for each point
@@ -240,7 +236,6 @@ def main():
         ]
     )
     master_list = master_list.tolist()
-    print("Master List length: ", len(master_list))
 
     # Aux variables data
     R_total = []
@@ -258,6 +253,7 @@ def main():
     # save poses
     tranlation_total.append(C_opt)
     orientation_total.append(R_quaternion_opt)
+    X_world_points = np.empty([0, 4])
 
     # Traverse in the data list for each new image
     # for image i, get all pairs till i-1 (because you have world coordinates for i-1)
@@ -266,6 +262,7 @@ def main():
         X_i = np.empty([0, 3])
         # store the corresponding image i pixels in another array
         x_i = np.empty([0, 2])
+        x_j = np.empty([0, 2])
         # complete tringulation related to image i wrt all images j
         triangulate_j_list = []
         # for image i get images from 1 to i-1
@@ -273,14 +270,12 @@ def main():
             # obtain the index of the data list match images (j,i)
             match_idx = (j - 1) * (10 - j) / 2 + i - j - 1
             # get the list matching[ji]
-            print("Match idx", match_idx)
             dl = data_list[int(match_idx)]
             # get the uv indexes for j and i
             uv_j, uv_i, uv_j_c, uv_i_c = SetData(dl, K)
             # Perform RANSAC to remove outliers
             uv_j = uv_j.T[:, :2]
             uv_i = uv_i.T[:, :2]
-            print("Shape uv_j", uv_j.shape)
             # store indexes of array which need triangulation
             needs_triangulation_idxs_list = []
             # for each row in uv_j
@@ -314,6 +309,7 @@ def main():
                                 each_Mrow.append(uv_i[a, 1])
                                 X_i = np.vstack([X_i, each_Mrow[:3]])
                                 x_i = np.vstack([x_i, uv_i[a]])
+                                x_j = np.vstack([x_j, uv_j[a]])
                                 break
                         k = k + 1
                 if flag_a_in_ml == 0:
@@ -332,14 +328,39 @@ def main():
         inliers_total.append(inlier_idxs)
 
         # Nonlinear tirangulation between images
-        world_points_data = np.vstack((X_i.T, np.ones((1, X_i.shape[0]))))
+        world_points_data = np.vstack(
+            (X_i[inlier_idxs, :].T, np.ones((1, X_i[inlier_idxs, :].shape[0])))
+        )
         ## initial Condition
         x_init = init_optimization_pose(translation_init, rotation_init)
 
         # Optimization problem
         t_new, R_new = cameraCalibrationPose(
-            x_i.T, K, x_init, world_points_data[0:3, :]
+            x_i[inlier_idxs, :].T, K, x_init, world_points_data[0:3, :]
         )
+        P1 = K @ np.hstack((rotation_init, translation_init.reshape(3, 1)))
+        P2 = K @ np.hstack((R_new, t_new.reshape(3, 1)))
+
+        X = triangulatePoints(x_j[inlier_idxs, :].T, x_i[inlier_idxs, :].T, P1, P2)
+        X = X / X[3, :]
+
+        x_init = init_optimization_variables(t_new, R_new, X)
+        X_opt, C_opt, R_quaternion_opt, distortion_opt = cameraCalibrationCasADi(
+            x_j[inlier_idxs, :].T,
+            x_i[inlier_idxs, :].T,
+            K,
+            x_init,
+            rotation_init,
+            translation_init,
+            R_new,
+            t_new,
+            X,
+        )
+        # Homogenization
+        X_4xN_casadi = np.vstack((X_opt, np.ones((1, X_opt.shape[1]))))
+
+        ## Computing triangulation
+        X_world_points = np.vstack([X_world_points, X_4xN_casadi.T])
 
         # Saving data
         tranlation_total.append(t_new)
@@ -349,12 +370,14 @@ def main():
         translation_init = t_new
         rotation_init = R_new
 
+    print(-orientation_total[0].T @ tranlation_total[0])
+    print(-orientation_total[1].T @ tranlation_total[1])
+
     with open("./P2Data/Matches/master_list.txt", "w", newline="") as file:
         writer = csv.writer(file, delimiter=" ")
         # Write each list as a row
         writer.writerows(master_list)
-
-    plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi)
+    plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_world_points.T)
 
 
 if __name__ == "__main__":

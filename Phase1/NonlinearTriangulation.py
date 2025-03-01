@@ -86,7 +86,7 @@ def cameraCalibrationCasADi(pts1, pts2, A, x_init, R1, t1, R2, t2, x):
     error_reshape_2 = ca.reshape(error_2, (2 * error_2.shape[1], 1))
     cost = (
         cost
-        + 2 * (error_reshape_2.T @ error_reshape_2)
+        + (error_reshape_2.T @ error_reshape_2)
         + error_reshape_1.T @ error_reshape_1
     )
 

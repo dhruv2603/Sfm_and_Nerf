@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi):
+def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
     camera_initial_rotation = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]])
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
@@ -139,13 +139,25 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi):
 
     # --- Plot the 3D points (blue spheres) ---
     points_projected_to_world = camera_initial_rotation @ X_4xN_casadi[0:3, :] * 0.5
+    points_projected_to_world_augmentation = (
+        camera_initial_rotation @ X_new[0:3, :] * 0.5
+    )
+
+    ax.scatter(
+        points_projected_to_world_augmentation[0, :],
+        points_projected_to_world_augmentation[1, :],
+        points_projected_to_world_augmentation[2, :],
+        color="red",
+        marker="o",
+        s=5,
+    )
     ax.scatter(
         points_projected_to_world[0, :],
         points_projected_to_world[1, :],
         points_projected_to_world[2, :],
-        color="blue",
+        color="green",
         marker="o",
-        s=5,
+        s=8,
     )
     ax.view_init(elev=90, azim=-90)
     plt.savefig("3d_camera_poses.pdf", bbox_inches="tight")

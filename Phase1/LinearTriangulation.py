@@ -3,40 +3,47 @@ import scipy
 import scipy.linalg
 
 
-def LinearTriangulation(K,C1,R1,C2,R2,uv_1, uv_2):
+def LinearTriangulation(K, C1, R1, C2, R2, uv_1, uv_2):
     I = np.identity(3)
-    C1 = np.array(C1).reshape((3,1))
-    C2 = np.array(C2).reshape((3,1))
-    
+    C1 = np.array(C1).reshape((3, 1))
+    C2 = np.array(C2).reshape((3, 1))
+
     # Projection Matrix for Camera 1
     P1 = K @ R1 @ np.hstack((I, -C1))
     # Projection Matrix for Camera 2
     P2 = K @ R2 @ np.hstack((I, -C2))
-    
-    p1T = P1[0, :].reshape((1,4))
-    p2T = P1[1, :].reshape((1,4))
-    p3T = P1[2, :].reshape((1,4))
-    
-    p1T_hat = P2[0, :].reshape((1,4))
-    p2T_hat = P2[1, :].reshape((1,4))
-    p3T_hat = P2[2, :].reshape((1,4))
+
+    p1T = P1[0, :].reshape((1, 4))
+    p2T = P1[1, :].reshape((1, 4))
+    p3T = P1[2, :].reshape((1, 4))
+
+    p1T_hat = P2[0, :].reshape((1, 4))
+    p2T_hat = P2[1, :].reshape((1, 4))
+    p3T_hat = P2[2, :].reshape((1, 4))
 
     X_list = []
 
     for i in range(uv_1.shape[0]):
-        x = uv_1[i,0]
-        y = uv_2[i,1]
+        x = uv_1[i, 0]
+        y = uv_2[i, 1]
 
-        x_hat = uv_2[i,0]
-        y_hat = uv_2[i,1]
+        x_hat = uv_2[i, 0]
+        y_hat = uv_2[i, 1]
 
-        A = np.vstack((y*p3T - p2T, p1T - x*p3T, y_hat*p3T_hat - p2T_hat, p1T_hat - x_hat*p3T_hat))
-        
-        A = A.reshape((4,4))
-        U,_, V = np.linalg.svd(A)
+        A = np.vstack(
+            (
+                y * p3T - p2T,
+                p1T - x * p3T,
+                y_hat * p3T_hat - p2T_hat,
+                p1T_hat - x_hat * p3T_hat,
+            )
+        )
+
+        A = A.reshape((4, 4))
+        U, _, V = np.linalg.svd(A)
         V = V.T
-        X = V[:,-1]
-        X = X/X[-1]
+        X = V[:, -1]
+        X = X / X[-1]
         X = X[:3]
         X_list.append(X)
 
