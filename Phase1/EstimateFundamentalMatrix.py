@@ -115,8 +115,8 @@ def normalizationMatrix(pts):
 def EstimateFundamentalMatrix(pixels_1,pixels_2):
     """
     Estimate the funcdamental matrix
-    Inputs: pixels_1 - (8,2) matrix of pixel values of the features in image 1 
-            pixels_2 - (8,2) matrix of pixel values of the features in image 2
+    Inputs: pixels_1 - (M,2) matrix of pixel values of the features in image 1 
+            pixels_2 - (M,2) matrix of pixel values of the features in image 2
     Output: F        - The fundamental matrix
     """
     

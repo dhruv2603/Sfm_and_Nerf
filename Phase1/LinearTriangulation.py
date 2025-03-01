@@ -3,30 +3,44 @@ import scipy
 import scipy.linalg
 
 
-def LinearTriangulation(dl, K, R, C):
-    P1 = np.matmul(K, np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]]))
+def LinearTriangulation(K,C1,R1,C2,R2,uv_1, uv_2):
+    I = np.identity(3)
+    C1 = np.array(C1).reshape((3,1))
+    C2 = np.array(C2).reshape((3,1))
+    
+    # Projection Matrix for Camera 1
+    P1 = K @ R1 @ np.hstack((I, -C1))
+    # Projection Matrix for Camera 2
+    P2 = K @ R2 @ np.hstack((I, -C2))
+    
+    p1T = P1[0, :].reshape((1,4))
+    p2T = P1[1, :].reshape((1,4))
+    p3T = P1[2, :].reshape((1,4))
+    
+    p1T_hat = P2[0, :].reshape((1,4))
+    p2T_hat = P2[1, :].reshape((1,4))
+    p3T_hat = P2[2, :].reshape((1,4))
+
     X_list = []
-    P2 = K @ np.hstack((R, C.reshape(3, 1)))
-    count = 0
-    for feature in dl:
-        x1 = np.array([float(feature[0]), float(feature[1]), 1])
-        x2 = np.array([float(feature[2]), float(feature[3]), 1])
-        x1_skew = np.array([[0, -x1[2], x1[1]], [x1[2], 0, -x1[0]], [-x1[1], x1[0], 0]])
-        x2_skew = np.array([[0, -x2[2], x2[1]], [x2[2], 0, -x2[0]], [-x2[1], x2[0], 0]])
-        a = np.matmul(x1_skew, P1)
-        b = np.matmul(x2_skew, P2)
-        A = np.vstack((a, b))
-        _, _, V = scipy.linalg.svd(A)
-        X_H = V[-1]
-        X_H = X_H / X_H[3]
-        X = np.array([X_H[0], X_H[1], X_H[2], X_H[3]])
-        x_3d = np.array([X_H[0], X_H[1], X_H[2]])
+
+    for i in range(uv_1.shape[0]):
+        x = uv_1[i,0]
+        y = uv_2[i,1]
+
+        x_hat = uv_2[i,0]
+        y_hat = uv_2[i,1]
+
+        A = np.vstack((y*p3T - p2T, p1T - x*p3T, y_hat*p3T_hat - p2T_hat, p1T_hat - x_hat*p3T_hat))
+        
+        A = A.reshape((4,4))
+        U,_, V = np.linalg.svd(A)
+        V = V.T
+        X = V[:,-1]
+        X = X/X[-1]
+        X = X[:3]
         X_list.append(X)
-        check_aux = np.dot(R[:, 2], x_3d - C)
-        val = check_aux
-        if val > 0:
-            count += 1
-    return X_list, count
+
+    return X_list
 
 
 def triangulatePoints(x1_h, x2_h, P1, P2):

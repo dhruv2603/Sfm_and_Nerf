@@ -164,6 +164,65 @@ def getMatches(dl, idxs, n_imgs, id, path):
             os.makedirs(output_path)
         cv2.imwrite(output_path + "pair_" + str(i) + str(j) + ".png", imgs)
 
+def get_epipoles(F):
+    """
+    Get the epipoles
+    Input : F  - the fundamental matrix
+    Output: e1 - Epipole of image 1
+            e2 - Epipole of image 2
+    """
+    U,_,V = np.linalg.svd(F)
+    e1 = V[-1, :]
+    e1 = e1/e1[-1]
+    
+    U,_,V = np.linalg.svd(F.T)
+    e2 = V[-1, :]
+    e2 = e2/e2[-1]
+    
+    return e1, e2
+
+def get_epipolar_lines(F, pixels_1, pixels_2):
+    """
+    Get the epipolar lines
+    Inputs: F        - Fundamental matrix
+            pixels_1 - (N,2) array of image 1 coordinates
+            pixels_2 - (N,2) array of image 2 coordinates
+    Output: lines1,lines2
+    """
+    # Convert to Homogeneous Coordinates
+    pixels_1 = np.hstack((pixels_1, np.ones((pixels_1.shape[0], 1))))
+    pixels_2 = np.hstack((pixels_2, np.ones((pixels_2.shape[0], 1))))
+    lines1 = pixels_1 @ F
+    lines2 = pixels_2 @ F.T
+    return lines1, lines2
+
+def drawlines(img1, img2, lines, pts1, pts2,path):
+    """
+    Draw the epipolar lines and corresponding points on the images.
+    Inputs: img1
+            img2
+            lines Array of epipolar lines.
+            pts1 (Nx2) matrix of points from the first image.
+            pts2 (Nx2) matrix of points from the second image.
+    """
+    if len(img1.shape) == 2:
+        r, c = img1.shape
+        img1 = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR)
+        img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR)
+    else:
+        r, c, _ = img1.shape
+        img1 = img1
+        img2 = img2
+    for r, pt1, pt2 in zip(lines, pts1, pts2):
+        color = tuple(np.random.randint(0, 255, 3).tolist())
+        x0, y0 = map(int, [0, -r[2]/r[1] ])
+        x1, y1 = map(int, [c, -(r[2]+r[0]*c)/r[1] ])
+        img1 = cv2.line(img1, (x0, y0), (x1, y1), color, 1)
+        pt1 = tuple(map(int, pt1))
+        pt2 = tuple(map(int, pt2))
+        img1 = cv2.circle(img1, tuple(pt1), 2, color, -1)
+        img2 = cv2.circle(img2, tuple(pt2), 2, color, -1)
+    return img1, img2
 
 def plotMatches(dl, idxs, n_imgs, id, path, projection_1, projection_2, name):
     i = 1

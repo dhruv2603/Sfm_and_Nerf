@@ -5,13 +5,15 @@ from helperFunctions import *
 import scipy.io as sio
 import matplotlib.pyplot as plt
 from GetInlierRANSAC import getFundamentalMatRANSAC,GetInlierRANSAC
-# from EstimateFundamentalMatrix import getFundamentalMatrix
-# from ExtractCameraPose import recoverPoseFromFundamental
+from EstimateFundamentalMatrix import getFundamentalMatrix, EstimateFundamentalMatrix
+from EssentialMatrixFromFundamentalMatrix import EssentialMatrixFromFundamentalMatrix
+from ExtractCameraPose import ExtractCameraPose #,recoverPoseFromFundamental
+from LinearTriangulation import triangulatePoints, LinearTriangulation
+from DisambiguateCameraPose import DisambiguateCameraPose
+from NonlinearTriangulation import init_optimization_variables, cameraCalibrationCasADi
 # from LinearPnp import LinearPnP
 # from PnPRANSAC import PnPRANSAC
-# from LinearTriangulation import triangulatePoints, LinearTriangulation
 # import cv2 as cv2
-# from NonlinearTriangulation import init_optimization_variables, cameraCalibrationCasADi
 # from aux_functions import projection_values
 # from aux_functions import show_projection, show_projection_image
 
@@ -38,15 +40,118 @@ def main():
     # Get the pixel values for the img 1 and img 2
     # Shape of each is (3,N)
     uv_1, uv_2, uv_1_c, uv_2_c = SetData(data_list[0], K)
+    
     """
     Compute inliers using RANSAC
     """
-    homography_inliers = homography_RANSAC(uv_1[:2,:].T, uv_2[:2,].T)
+    homography_inliers = homography_RANSAC(uv_1[:2,:].T, uv_2[:2,:].T)
     print(uv_1.shape[1])
-    print(len(homography_inliers))
+    print("Number of inliers from Homography RANSAC: ",len(homography_inliers))
+
     inliers, num_inliers = GetInlierRANSAC(uv_1[:2,:].T,uv_2[:2,:].T,homography_inliers)
-    print(num_inliers)
+    print("Number of inliers from 8-pt RANSAC: ", num_inliers)
     getMatches(data_list[0], inliers, n, 0, DATA_DIR)
+
+    """
+    Estimate the Fundamental Matrix
+    """
+    F = EstimateFundamentalMatrix(uv_1[:2,:].T[inliers], uv_2[:2,:].T[inliers])
+    print("Fundamental Matrix: ", F)
+    F_cv, mask = cv2.findFundamentalMat(uv_1[:2,:].T[inliers], uv_2[:2,:].T[inliers], method=cv2.FM_8POINT)
+    print("Fundamental matrix from cv2", F_cv)
+
+    e1, e2 = get_epipoles(F)
+    print("Epipoles: ", e1, e2)
+    
+    # Get Epipolar Lines
+    lines1, lines2 = get_epipolar_lines(F, uv_1[:2,:].T[inliers], uv_2[:2,:].T[inliers])
+    print("Epipolar Lines 1: ", lines1)
+    print("Epipolar Lines 2: ", lines2)
+    
+    img1 = cv2.imread(os.path.join(DATA_DIR,"1.png"))
+    img2 = cv2.imread(os.path.join(DATA_DIR,"2.png"))
+    # Draw the epipolar lines
+    img1_ep, img2_ep = drawlines(img1.copy(), img2.copy(), lines1, uv_1[:2,:].T[inliers], uv_2[:2,:].T[inliers],DATA_DIR)
+    # Draw the epipolar lines
+    img1_ep_hat, img2_ep_hat = drawlines(img2.copy(), img1.copy(), lines2, uv_2[:2,:].T[inliers], uv_1[:2,:].T[inliers],DATA_DIR)
+    
+    path = os.path.join(DATA_DIR,"1_epipoles.png")
+    cv2.imwrite(path,img1_ep)
+    path = os.path.join(DATA_DIR,"2_epipoles.png")
+    cv2.imwrite(path,img2_ep)
+    path = os.path.join(DATA_DIR,"1_epipoles_hat.png")
+    cv2.imwrite(path,img1_ep_hat)
+    path = os.path.join(DATA_DIR,"2_epipoles_hat.png")
+    cv2.imwrite(path,img2_ep_hat)
+
+    """
+    Estimate Essential Matrix
+    """
+    E = EssentialMatrixFromFundamentalMatrix(K, F)
+    print("Essential Matrix: ", E)
+    E_cv, mask = cv2.findEssentialMat(uv_1[:2,:].T[inliers], uv_2[:2,:].T[inliers], K, method=cv2.LMEDS, prob=0.999, threshold=1.0)
+    print("Essential Matrix from cv2: ", E_cv)
+
+    """
+    Perform Linear Triangulation
+    """
+    camera_poses = ExtractCameraPose(E)
+
+    C0 = np.zeros(3)
+    R0 = np.eye(3)
+    X_4_comb = []
+    C_4_list = []
+    R_4_list = []
+    
+    for (C,R) in camera_poses:
+        X = LinearTriangulation(K,C0,R0,C,R,uv_1[:2,:].T[inliers], uv_2[:2,:].T[inliers])
+        X_4_comb.append(X)
+        C_4_list.append(C)
+        R_4_list.append(R)
+    
+    """
+    Disambiguate Camera Pose
+    """
+    C, R, X = DisambiguateCameraPose(R_4_list, C_4_list, X_4_comb)
+    C = np.array(C)
+    R = np.array(R)
+    print("Rotation Matrix: ",R)
+    print("Camera position: ",C)
+    X    = np.array(X)
+    X_4N = np.hstack((X,np.ones((X.shape[0],1))))
+
+    """
+    Perform Non Linear Triangulation
+    """
+    # Nonlinear Optimizer for translations, rotation and points in world
+    x_init = init_optimization_variables(C, R, X.T)
+    x_vector_opt, x_trans_opt, R_quaternion_opt, distortion_opt = (
+        cameraCalibrationCasADi(
+            uv_1.T[inliers].T,
+            uv_2.T[inliers].T,
+            K,
+            x_init,
+            R0,
+            C0.reshape((3,1)),
+            R,
+            C,
+            X_4N.T,
+        )
+    )
+    # Points from the optimizer
+    X_4xN_casadi = np.vstack(
+        (x_vector_opt, np.ones((1, x_vector_opt.shape[1])))
+    )
+    print(X_4xN_casadi.shape)
+
+
+
+
+
+
+
+
+    #################################################
     # iteration = 0
 
     # for img_n, dl in enumerate(data_list):

@@ -3,5 +3,14 @@ import scipy
 
 
 def EssentialMatrixFromFundamentalMatrix(K, F):
-    E = np.matmul(np.matmul(np.transpose(K), F), K)
+    """
+    Compute Essential Matrix
+    Inputs: K - intrinsic calibration matrix
+            F - Fundamental matrix
+    Output: E - Essential Matrix
+    """
+
+    E = K.T @ F @ K
+    U,_,V = np.linalg.svd(E)
+    E = U @ np.diag([1, 1, 0]) @ V
     return E
