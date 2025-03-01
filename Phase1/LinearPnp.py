@@ -1,8 +1,14 @@
 import numpy as np
 import scipy
 import os
-
+from NonlinearTriangulation import (
+    init_optimization_variables,
+    cameraCalibrationCasADi,
+    init_optimization_pose,
+    cameraCalibrationPose,
+)
 import scipy.linalg
+from LinearTriangulation import triangulatePoints, LinearTriangulation
 
 
 def LinearPnP(X_i, x_i, K):
@@ -55,3 +61,24 @@ def LinearPnP(X_i, x_i, K):
         # C = P[:, 3] / gamma
 
     return R, C
+
+
+def TriangulationPnp(X_i, x_j, x_i, inlier_idxs, K, translation_init, rotation_init):
+
+    # Linear Pnp
+    world_points_data = np.vstack(
+        (X_i[inlier_idxs, :].T, np.ones((1, X_i[inlier_idxs, :].shape[0])))
+    )
+    ## initial Condition
+    x_init = init_optimization_pose(translation_init, rotation_init)
+    # Optimization problem
+    t_new, R_new = cameraCalibrationPose(
+        x_i[inlier_idxs, :].T, K, x_init, world_points_data[0:3, :]
+    )
+    P1 = K @ np.hstack((rotation_init, translation_init.reshape(3, 1)))
+    P2 = K @ np.hstack((R_new, t_new.reshape(3, 1)))
+
+    X = triangulatePoints(x_j[inlier_idxs, :].T, x_i[inlier_idxs, :].T, P1, P2)
+    X = X / X[3, :]
+
+    return X, t_new, R_new

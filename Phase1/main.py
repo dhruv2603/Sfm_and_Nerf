@@ -19,11 +19,8 @@ from NonlinearTriangulation import (
 from aux_functions import show_projection, show_projection_image
 from PnPRANSAC import PnPRANSAC
 from plot_results import plot_3d_results
-
-# from LinearPnp import LinearPnP
-# from PnPRANSAC import PnPRANSAC
-# import cv2 as cv2
-# from aux_functions import projection_values
+from NonlinearPnp import NonlinearPnpCasadi
+from LinearPnp import TriangulationPnp
 
 
 def main():
@@ -222,10 +219,7 @@ def main():
     plt.title("2D Scatter Plot of Two Data Sets")
     plt.savefig("scatter_plot.pdf", format="pdf")
 
-    aux = uv_1[:2, :].T[inliers]
     # Array with values:
-    # [World coordinate, img_id, u, v, img_id, u, v]
-    # stacked one below the other for each point
     master_list = np.hstack(
         [
             X_4xN_casadi.T,
@@ -237,13 +231,6 @@ def main():
     )
     master_list = master_list.tolist()
 
-    # Aux variables data
-    R_total = []
-    t_total = []
-    image_points = []
-    world_points = []
-    inliers_total = []
-
     # Init Orientations and translation for the optimizer
     translation_init = C_opt
     rotation_init = R_quaternion_opt
@@ -254,6 +241,8 @@ def main():
     tranlation_total.append(C_opt)
     orientation_total.append(R_quaternion_opt)
     X_world_points = np.empty([0, 4])
+    Aux_world_images_12 = X_4xN_casadi
+    # X_world_points = np.vstack([X_world_points, X_4xN_casadi.T])
 
     # Traverse in the data list for each new image
     # for image i, get all pairs till i-1 (because you have world coordinates for i-1)
@@ -321,43 +310,16 @@ def main():
 
         # Calculate the P matrix
         P_i, inlier_idxs, R_i, t_i = PnPRANSAC(X_i, x_i, K)
-        R_total.append(R_i)
-        t_total.append(t_i)
-        image_points.append(x_i)
-        world_points.append(X_i)
-        inliers_total.append(inlier_idxs)
 
-        # Nonlinear tirangulation between images
-        world_points_data = np.vstack(
-            (X_i[inlier_idxs, :].T, np.ones((1, X_i[inlier_idxs, :].shape[0])))
+        # Linear triangulation
+        X, t_new, R_new = TriangulationPnp(
+            X_i, x_j, x_i, inlier_idxs, K, translation_init, rotation_init
         )
-        ## initial Condition
-        x_init = init_optimization_pose(translation_init, rotation_init)
 
-        # Optimization problem
-        t_new, R_new = cameraCalibrationPose(
-            x_i[inlier_idxs, :].T, K, x_init, world_points_data[0:3, :]
+        # Nonlinear Triangulation
+        X_4xN_casadi, t_new, R_new = NonlinearPnpCasadi(
+            X, x_j, x_i, inlier_idxs, t_new, R_new, translation_init, rotation_init, K
         )
-        P1 = K @ np.hstack((rotation_init, translation_init.reshape(3, 1)))
-        P2 = K @ np.hstack((R_new, t_new.reshape(3, 1)))
-
-        X = triangulatePoints(x_j[inlier_idxs, :].T, x_i[inlier_idxs, :].T, P1, P2)
-        X = X / X[3, :]
-
-        x_init = init_optimization_variables(t_new, R_new, X)
-        X_opt, C_opt, R_quaternion_opt, distortion_opt = cameraCalibrationCasADi(
-            x_j[inlier_idxs, :].T,
-            x_i[inlier_idxs, :].T,
-            K,
-            x_init,
-            rotation_init,
-            translation_init,
-            R_new,
-            t_new,
-            X,
-        )
-        # Homogenization
-        X_4xN_casadi = np.vstack((X_opt, np.ones((1, X_opt.shape[1]))))
 
         ## Computing triangulation
         X_world_points = np.vstack([X_world_points, X_4xN_casadi.T])
@@ -370,14 +332,13 @@ def main():
         translation_init = t_new
         rotation_init = R_new
 
-    print(-orientation_total[0].T @ tranlation_total[0])
-    print(-orientation_total[1].T @ tranlation_total[1])
-
     with open("./P2Data/Matches/master_list.txt", "w", newline="") as file:
         writer = csv.writer(file, delimiter=" ")
         # Write each list as a row
         writer.writerows(master_list)
-    plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_world_points.T)
+    plot_3d_results(
+        tranlation_total, orientation_total, Aux_world_images_12, X_world_points.T
+    )
 
 
 if __name__ == "__main__":

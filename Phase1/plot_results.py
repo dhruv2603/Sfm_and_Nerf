@@ -10,9 +10,8 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
-    ax.set_xlim([-5, 5])
-    ax.set_ylim([-0, 10])
-    ax.set_zlim([-5, 5])
+    ax.set_ylim([-0, 20])
+    ax.set_zlim([-10, 10])
 
     origin = np.array([0, 0, 0])
     global_x = np.array([1, 0, 0])
@@ -138,10 +137,8 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
         )
 
     # --- Plot the 3D points (blue spheres) ---
-    points_projected_to_world = camera_initial_rotation @ X_4xN_casadi[0:3, :] * 0.5
-    points_projected_to_world_augmentation = (
-        camera_initial_rotation @ X_new[0:3, :] * 0.5
-    )
+    points_projected_to_world = camera_initial_rotation @ X_4xN_casadi[0:3, :]
+    points_projected_to_world_augmentation = camera_initial_rotation @ X_new[0:3, :]
 
     ax.scatter(
         points_projected_to_world_augmentation[0, :],
@@ -158,6 +155,12 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
         color="green",
         marker="o",
         s=8,
+    )
+    ax.set_xlim(
+        [
+            np.min(points_projected_to_world[0, :]),
+            np.max(points_projected_to_world[0, :]) + 5,
+        ]
     )
     ax.view_init(elev=90, azim=-90)
     plt.savefig("3d_camera_poses.pdf", bbox_inches="tight")
