@@ -485,7 +485,7 @@ def main():
         s=5,
     )
     ax.view_init(elev=90, azim=-90)
-
+    plt.savefig("3d_camera_poses.pdf", bbox_inches="tight")
     plt.show()
 
     show_projection_image(
