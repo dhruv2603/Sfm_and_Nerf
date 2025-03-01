@@ -183,3 +183,97 @@ def init_optimization_variables(translation, rotation, points):
     X_init = np.concatenate((X_init, points_new))
 
     return X_init
+
+
+def cameraCalibrationPose(pts1, A, x_init, R1, t1, x):
+    # Ensure pts1 and pts2 are of type float (double precision)
+    pts1 = np.asarray(pts1, dtype=np.float64)
+    pts2 = np.asarray(pts2, dtype=np.float64)
+
+    # Get size parameters from pts1: assume pts1 is m x N.
+    size_optimization_x, size_optimization_y = (
+        x.shape
+    )  # e.g., m=4, N = number of points
+
+    # d = (size_optimization_x - 1) * size_optimization_y
+    d = 2 + 6 + (size_optimization_x - 1) * size_optimization_y
+    a_vector = ca.SX.sym("full_estimation", d, 1)
+
+    # Initialize cost to zero.
+    cost = 0
+
+    # Distortion coefficients: first 2 elements.
+    distortion = a_vector[0:2]
+    # Translation: elements 3:5 (MATLAB indices 3:5 -> Python indices 2:5)
+    x_trans = a_vector[2:5]
+    # Rotation (minimal representation, e.g., a 3-vector): elements 6:8 (Python indices 5:8)
+    x_quaternion = a_vector[5:8]
+    # The remaining elements (from index 8 onward) represent the 3D points.
+    vector_optimization = a_vector[8:]
+    # Reshape vector_optimization into a 3 x N matrix.
+    x_vector = ca.reshape(vector_optimization, 3, size_optimization_y)
+
+    # --- Map the 3-vector to a quaternion ---
+    # Compute norm squared of x_quaternion.
+    norm_sq = ca.dot(x_quaternion, x_quaternion)
+    q0 = (1 - norm_sq) / (1 + norm_sq)
+    q1 = 2 * x_quaternion[0] / (1 + norm_sq)
+    q2 = 2 * x_quaternion[1] / (1 + norm_sq)
+    q3 = 2 * x_quaternion[2] / (1 + norm_sq)
+    quaternion = ca.vertcat(q0, q1, q2, q3)  # quaternion in form [w, x, y, z]
+    R2 = quat_to_rot(quaternion)
+
+    t1 = ca.DM(t1)
+    R1 = ca.DM(R1)
+
+    t2 = x_trans
+    R2 = R2
+
+    U_real1 = pts1[0:2, :]
+    U_real2 = pts2[0:2, :]
+    U_improved_final_1 = projection(R1, t1, A, x_vector, pts1)
+    U_improved_final_2 = projection(R2, t2, A, x_vector, pts2)
+
+    ### --- Compute reprojection error ---
+    ## U_real is a numpy array; convert it to CasADi DM.
+    error_1 = U_real1 - U_improved_final_1
+    error_2 = U_real2 - U_improved_final_2
+    ### Reshape error into a column vector.
+    error_reshape_1 = ca.reshape(error_1, (2 * error_1.shape[1], 1))
+    error_reshape_2 = ca.reshape(error_2, (2 * error_2.shape[1], 1))
+    cost = (
+        cost + error_reshape_2.T @ error_reshape_2 + error_reshape_1.T @ error_reshape_1
+    )
+
+    ### --- Set up and solve the NLP ---
+    nlp = {"x": a_vector, "f": cost}
+    opts = {"print_time": 0, "ipopt": {"print_level": 0}}
+    solver = ca.nlpsol("solver", "ipopt", nlp, opts)
+    sol = solver(x0=x_init)
+    a_opt_vec = np.array(sol["x"]).flatten()
+
+    ### --- Extract optimized parameters ---
+    distortion_opt = a_opt_vec[0:2]
+    vector_optimization_opt = a_opt_vec[8:]
+    ## Reshape vector_optimization_opt into a (3 x size_optimization_y) array.
+    x_vector_opt = np.reshape(
+        vector_optimization_opt, (3, size_optimization_y), order="F"
+    )
+    ### Extract the optimized rotation and translation parts.
+    x_quaternion_opt = a_opt_vec[5:8]
+    norm_sq_opt = np.dot(x_quaternion_opt, x_quaternion_opt)
+    q0_opt = (1 - norm_sq_opt) / (1 + norm_sq_opt)
+    q1_opt = 2 * x_quaternion_opt[0] / (1 + norm_sq_opt)
+    q2_opt = 2 * x_quaternion_opt[1] / (1 + norm_sq_opt)
+    q3_opt = 2 * x_quaternion_opt[2] / (1 + norm_sq_opt)
+    quaternion_opt = np.array([q0_opt, q1_opt, q2_opt, q3_opt])
+
+    x_trans_opt = a_opt_vec[2:5]
+    R_quaternion_opt = quat_to_rot(quaternion_opt)
+
+    R_quaternion_opt = np.array(R_quaternion_opt)
+    x_trans_opt = np.array(x_trans_opt)
+    x_vector_opt = np.array(x_vector_opt)
+    distortion_opt = np.array(distortion_opt)
+
+    return x_vector_opt, x_trans_opt, R_quaternion_opt, distortion_opt

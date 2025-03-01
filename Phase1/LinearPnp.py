@@ -17,9 +17,11 @@ def LinearPnP(X_i, x_i, K):
     x_i_homo = np.hstack((x_i, np.ones((x_i.shape[0], 1))))
     img_x_i = np.linalg.inv(K) @ x_i_homo.T
     norm_x_i = (img_x_i / img_x_i[2, :]).T
+    # norm_x_i = img_x_i.T
     A = np.empty([0, 12])
     I = np.eye(3)
     for i, data in enumerate(x_i_homo):
+        # for i, data in enumerate(norm_x_i):
         u = float(data[0])
         v = float(data[1])
         x = X_i[i][0]
@@ -36,6 +38,7 @@ def LinearPnP(X_i, x_i, K):
     P = V[-1]
     P = np.reshape(P, (3, 4))
     R_init = np.linalg.inv(K) @ P[:, :3]
+    # R_init = P[:, :3]
     Ur, Dr, Vr = scipy.linalg.svd(R_init)
     R = np.matmul(Ur, Vr)
     gamma = Dr[0]
@@ -43,7 +46,12 @@ def LinearPnP(X_i, x_i, K):
     if np.linalg.det(R) < 0:
         R = -R
         # T = -T
-
-    C = -np.linalg.inv(K) @ P[:, 3] / gamma
+        C = -np.linalg.inv(K) @ P[:, 3] / gamma
+        # C = P[:, 3] / gamma
+    else:
+        R = R
+        # T = -T
+        C = np.linalg.inv(K) @ P[:, 3] / gamma
+        # C = P[:, 3] / gamma
 
     return R, C

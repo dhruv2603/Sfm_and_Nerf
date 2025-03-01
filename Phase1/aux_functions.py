@@ -7,6 +7,7 @@ import time
 import math
 from scipy.spatial.transform import Rotation as R
 import cv2 as cv2
+from helperFunctions import plotMatches
 
 
 def fundamental_analytical(X, U):
@@ -406,3 +407,77 @@ def projection_values(H1, pts3D_4xN, k1, k2, K):
     pixels_aux_estimated = pixels_aux_estimated[:2, :] / pixels_aux_estimated[2, :]
 
     return pixels_aux_estimated
+
+
+def show_projection(
+    x_trans_opt,
+    R_quaternion_opt,
+    pts3D_4xN_casadi,
+    K,
+    DATA_DIR,
+    dl,
+    n,
+    img_n,
+    inliers_index,
+    name,
+):
+
+    # First image transformation
+    I = np.eye(3, 3)
+    t = np.zeros((3, 1))
+    H1 = np.block([[I, t], [np.zeros((1, 3)), np.array([[1]])]])
+    H3 = np.block(
+        [
+            [R_quaternion_opt, x_trans_opt.reshape(3, 1)],
+            [np.zeros((1, 3)), np.array([[1]])],
+        ]
+    )
+
+    # H1 = np.block([[I, t], [np.zeros((1, 3)), np.array([[1]])]])
+    pixels_3 = projection_values(H1, pts3D_4xN_casadi, 0, 0, K)
+    pixels_4 = projection_values(H3, pts3D_4xN_casadi, 0, 0, K)
+    pixels_3 = np.array(pixels_3)
+    pixels_4 = np.array(pixels_4)
+    plotMatches(dl, inliers_index, n, img_n, DATA_DIR, pixels_3, pixels_4, name)
+
+
+def show_projection_image(
+    x_trans_opt,
+    R_quaternion_opt,
+    pts3D_4xN_casadi,
+    K,
+    DATA_DIR,
+    dl,
+    n,
+    img_n,
+    inliers_index,
+    name,
+    image_number,
+):
+
+    H3 = np.block(
+        [
+            [R_quaternion_opt, x_trans_opt.reshape(3, 1)],
+            [np.zeros((1, 3)), np.array([[1]])],
+        ]
+    )
+
+    pixels_4 = projection_values(H3, pts3D_4xN_casadi, 0, 0, K)
+    pixels_4 = np.array(pixels_4)
+
+    img2 = cv2.imread(os.path.join(DATA_DIR, str(image_number) + ".png"))
+    color1 = (0, 0, 255)
+    color2 = (255, 0, 0)
+
+    # Plot points original
+    for idx in range(len(dl)):
+        pt2 = (int(float(dl[idx][2])), int(float(dl[idx][3])))
+        cv2.circle(img2, pt2, 2, color1, -1)
+
+    for k in range(0, pixels_4.shape[1]):
+        projection_image_2 = (int(pixels_4[0, k]), int(pixels_4[1, k]))
+        cv2.circle(img2, projection_image_2, 2, color2, -1)
+
+    output_path = os.path.join(DATA_DIR, "image_projection")
+    os.makedirs(output_path, exist_ok=True)
+    cv2.imwrite(output_path + "/" + name + "_" + "image_2" + ".png", img2)

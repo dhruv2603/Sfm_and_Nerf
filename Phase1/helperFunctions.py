@@ -109,7 +109,7 @@ def getMatches(dl, idxs, n_imgs, id, path):
         cv2.imwrite(output_path + "pair_" + str(i) + str(j) + ".png", imgs)
 
 
-def plotMatches(dl, n_imgs, id, path, projection_1, projection_2, name):
+def plotMatches(dl, idxs, n_imgs, id, path, projection_1, projection_2, name):
     i = 1
     while id >= n_imgs - 1:
         id = id - n_imgs + 1
@@ -123,18 +123,17 @@ def plotMatches(dl, n_imgs, id, path, projection_1, projection_2, name):
 
     # Plot points original
     for idx in range(len(dl)):
-        pt1 = (int(float(dl[idx][0])), int(float(dl[idx][1])))
-        pt2 = (int(float(dl[idx][2])), int(float(dl[idx][3])))
-        color = tuple(np.random.randint(0, 255, 3).tolist())
-        cv2.circle(img1, pt1, 2, color, -1)
-        cv2.circle(img2, pt2, 2, color, -1)
+        if idx in idxs:
+            pt1 = (int(float(dl[idx][0])), int(float(dl[idx][1])))
+            pt2 = (int(float(dl[idx][2])), int(float(dl[idx][3])))
+            cv2.circle(img1, pt1, 2, color1, -1)
+            cv2.circle(img2, pt2, 2, color1, -1)
 
     for k in range(0, projection_1.shape[1]):
         projection_image_1 = (int(projection_1[0, k]), int(projection_1[1, k]))
         projection_image_2 = (int(projection_2[0, k]), int(projection_2[1, k]))
-        color = tuple(np.random.randint(0, 255, 3).tolist())
-        cv2.circle(img1, projection_image_1, 2, color, -1)
-        cv2.circle(img2, projection_image_2, 2, color, -1)
+        cv2.circle(img1, projection_image_1, 2, color2, -1)
+        cv2.circle(img2, projection_image_2, 2, color2, -1)
 
     output_path = os.path.join(path, "image_projection")
     os.makedirs(output_path, exist_ok=True)

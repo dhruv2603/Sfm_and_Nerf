@@ -12,6 +12,8 @@ from PnPRANSAC import PnPRANSAC
 from LinearTriangulation import triangulatePoints, LinearTriangulation
 import cv2 as cv2
 from NonlinearTriangulation import init_optimization_variables, cameraCalibrationCasADi
+from aux_functions import projection_values
+from aux_functions import show_projection, show_projection_image
 
 
 def SetData(dl, K):
@@ -70,7 +72,7 @@ def main():
 
             # Compute sift features from the images
             ptsA, ptsB = get_features(n, img_n, DATA_DIR)
-            plotMatches(dl, n, img_n, DATA_DIR, pixels_1, pixels_2, "Verification")
+            # plotMatches(dl, n, img_n, DATA_DIR, pixels_1, pixels_2, "Verification")
 
             # Compute fundamental matrix based on our functions
             F_aux = getFundamentalMatrix(pixels_1.T, pixels_2.T, num_point=8)
@@ -91,6 +93,8 @@ def main():
             # Get Re-estimate Fundamental matrix using only inliers
             inliersA_og = pixels_1.T[mask.ravel() == 1]
             inliersB_og = pixels_2.T[mask.ravel() == 1]
+            inlier_indices = np.where(mask.ravel() == 1)[0]
+            inliers_index = inlier_indices.tolist()
 
             ## Homogenous data shape 3, N
             points_A_normalized_inlier = np.vstack(
@@ -162,6 +166,32 @@ def main():
                 (x_vector_opt, np.ones((1, x_vector_opt.shape[1])))
             )
 
+            # Plot projection  nonlinear
+            show_projection(
+                x_trans_opt,
+                R_quaternion_opt,
+                pts3D_4xN_casadi,
+                K,
+                DATA_DIR,
+                dl,
+                n,
+                img_n,
+                inliers_index,
+                "Non-linear",
+            )
+
+            show_projection(
+                t_ransac,
+                R_ransac,
+                pts3D_4xN,
+                K,
+                DATA_DIR,
+                dl,
+                n,
+                img_n,
+                inliers_index,
+                "linear",
+            )
             ## Show results
             fig = plt.figure()
 
@@ -215,6 +245,14 @@ def main():
             print("Master List length: ", len(master_list))
             P = [P1, P2]
         iteration = iteration + 1
+
+    # Aux variables data
+    R_total = []
+    t_total = []
+    image_points = []
+    world_points = []
+    inliers_total = []
+
     # Traverse in the data list for each new image
     # for image i, get all pairs till i-1 (because you have world coordinates for i-1)
     for i in range(3, n + 1):
@@ -280,11 +318,21 @@ def main():
             triangulate_j_list.append(needs_triangulation_idxs_list)
 
         # Calculate the P matrix
-        P_i, inlier_idxs = PnPRANSAC(X_i, x_i, K)
+        P_i, inlier_idxs, R_i, t_i = PnPRANSAC(X_i, x_i, K)
         print(P_i)
+        print(R_i)
+        print(t_i)
         print(len(inlier_idxs))
         # P_i = LinearPnP(X_i,x_i,K)
         P.append(P_i)
+        R_total.append(R_i)
+        t_total.append(t_i)
+        image_points.append(x_i)
+        world_points.append(X_i)
+        inliers_total.append(inlier_idxs)
+
+        # Try to optimze based on the previous rotations and translations
+        # x_init = init_optimization_variables(x_trans_opt, R_quaternion_opt, X_i)
 
         ## Uncomment the below lines
         # # Triangulate to get new world points
@@ -313,6 +361,50 @@ def main():
         writer = csv.writer(file, delimiter=" ")
         # Write each list as a row
         writer.writerows(master_list)
+
+    R_total = np.array(R_total)
+    t_total = np.array(t_total)
+    # print(R_total[0, :, :])
+    print((t_total[0, :]))
+    print(R_total[0, :, :].T @ (-t_total[0, :]))
+    print(R_quaternion_opt.T @ (-x_trans_opt))
+    # print(R_ransac.T @ (-t_ransac))
+
+    world_points_3 = np.vstack(
+        (world_points[0].T, np.ones((1, world_points[0].shape[0])))
+    )
+
+    # creating new points
+
+    data_list_12 = np.vstack((np.array(data_list[1]), np.array(data_list[4]))).tolist()
+
+    show_projection_image(
+        t_total[0, :],
+        R_total[0, :, :],
+        world_points_3,
+        K,
+        DATA_DIR,
+        data_list[1],
+        n,
+        img_n,
+        inliers_total[0],
+        "Linear 3",
+        3,
+    )
+
+    show_projection_image(
+        x_trans_opt,
+        R_quaternion_opt,
+        pts3D_4xN_casadi,
+        K,
+        DATA_DIR,
+        data_list[0],
+        n,
+        img_n,
+        inliers_index,
+        "Nolinear 2",
+        2,
+    )
 
 
 if __name__ == "__main__":
