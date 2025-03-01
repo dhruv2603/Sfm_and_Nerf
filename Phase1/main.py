@@ -11,11 +11,11 @@ from ExtractCameraPose import ExtractCameraPose #,recoverPoseFromFundamental
 from LinearTriangulation import triangulatePoints, LinearTriangulation
 from DisambiguateCameraPose import DisambiguateCameraPose
 from NonlinearTriangulation import init_optimization_variables, cameraCalibrationCasADi
+from aux_functions import show_projection, show_projection_image
 # from LinearPnp import LinearPnP
 # from PnPRANSAC import PnPRANSAC
 # import cv2 as cv2
 # from aux_functions import projection_values
-# from aux_functions import show_projection, show_projection_image
 
 def main():
     # Define inputs of the Algorithm
@@ -89,8 +89,6 @@ def main():
     """
     E = EssentialMatrixFromFundamentalMatrix(K, F)
     print("Essential Matrix: ", E)
-    E_cv, mask = cv2.findEssentialMat(uv_1[:2,:].T[inliers], uv_2[:2,:].T[inliers], K, method=cv2.LMEDS, prob=0.999, threshold=1.0)
-    print("Essential Matrix from cv2: ", E_cv)
 
     """
     Perform Linear Triangulation
@@ -124,8 +122,10 @@ def main():
     Perform Non Linear Triangulation
     """
     # Nonlinear Optimizer for translations, rotation and points in world
+    # Initial values
     x_init = init_optimization_variables(C, R, X.T)
-    x_vector_opt, x_trans_opt, R_quaternion_opt, distortion_opt = (
+    # Points from the optimizer
+    X_opt, C_opt, R_quaternion_opt, distortion_opt = (
         cameraCalibrationCasADi(
             uv_1.T[inliers].T,
             uv_2.T[inliers].T,
@@ -138,13 +138,81 @@ def main():
             X_4N.T,
         )
     )
-    # Points from the optimizer
+    # Homogenization
     X_4xN_casadi = np.vstack(
-        (x_vector_opt, np.ones((1, x_vector_opt.shape[1])))
+        (X_opt, np.ones((1, X_opt.shape[1])))
     )
-    print(X_4xN_casadi.shape)
 
+    # Nonlinear Triangulation visualization
+    show_projection(
+        -R_quaternion_opt.T @ C,
+        R_quaternion_opt,
+        X_4xN_casadi,
+        K,
+        DATA_DIR,
+        data_list[0],
+        n,
+        0,
+        inliers,
+        "Non-linear",
+    )
 
+    # Linear Triangulation visualization
+    show_projection(
+        - R.T @ C,
+        R,
+        X_4N.T,
+        K,
+        DATA_DIR,
+        data_list[0],
+        n,
+        0,
+        inliers,
+        "linear",
+    )
+    ## Show results
+    fig = plt.figure()
+
+    # Add a 3D subplot
+    ax = fig.add_subplot(111)
+    plt.scatter(
+        X_4N.T[0, :],
+        X_4N.T[2, :],
+        s=2,
+        color="green",
+        label="Dataset 3",
+    )
+    plt.scatter(
+        X_4xN_casadi[0, :],
+        X_4xN_casadi[2, :],
+        s=1,
+        color="blue",
+        label="Dataset 3",
+    )
+    plt.xlim(-20, 20)
+    plt.ylim(0, 30)
+    # Labeling the axes and adding a title
+    plt.xlabel("X-axis")
+    plt.ylabel("Y-axis")
+    plt.title("2D Scatter Plot of Two Data Sets")
+    plt.savefig("scatter_plot.pdf", format="pdf")
+
+    print("Type world: ", type(X_4xN_casadi))
+    # Array with values:
+    # [World coordinate, img_id, u, v, img_id, u, v]
+    # stacked one below the other for each point
+    # master_list = np.hstack(
+    #     [
+    #         X_4xN_casadi.T,
+    #         np.ones((inliersA_og.shape[0], 1), dtype=int),
+    #         inliersA_og,
+    #         2 * np.ones((inliersA_og.shape[0], 1), dtype=int),
+    #         inliersB_og,
+    #     ]
+    # )
+    # master_list = master_list.tolist()
+    # print("Master List length: ", len(master_list))
+    # P = [P1, P2]
 
 
 
