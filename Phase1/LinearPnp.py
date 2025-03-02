@@ -63,7 +63,9 @@ def LinearPnP(X_i, x_i, K):
     return R, C
 
 
-def TriangulationPnp(X_i, x_j, x_i, inlier_idxs, K, translation_init, rotation_init):
+def TriangulationPnp(
+    X_i, x_j, x_i, inlier_idxs, K, translation_init, rotation_init, gain
+):
 
     # Linear Pnp
     world_points_data = np.vstack(
@@ -73,7 +75,7 @@ def TriangulationPnp(X_i, x_j, x_i, inlier_idxs, K, translation_init, rotation_i
     x_init = init_optimization_pose(translation_init, rotation_init)
     # Optimization problem
     t_new, R_new = cameraCalibrationPose(
-        x_i[inlier_idxs, :].T, K, x_init, world_points_data[0:3, :]
+        x_i[inlier_idxs, :].T, K, x_init, world_points_data[0:3, :], gain
     )
     P1 = K @ np.hstack((rotation_init, translation_init.reshape(3, 1)))
     P2 = K @ np.hstack((R_new, t_new.reshape(3, 1)))

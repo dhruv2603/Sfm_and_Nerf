@@ -28,7 +28,9 @@ def quat_to_rot(q):
     return R
 
 
-def cameraCalibrationCasADi(pts1, pts2, A, x_init, R1, t1, R2, t2, x):
+def cameraCalibrationCasADi(
+    pts1, pts2, A, x_init, R1, t1, R2, t2, x, gain_1=1.0, gain_2=1.0
+):
     # Ensure pts1 and pts2 are of type float (double precision)
     pts1 = np.asarray(pts1, dtype=np.float64)
     pts2 = np.asarray(pts2, dtype=np.float64)
@@ -86,8 +88,8 @@ def cameraCalibrationCasADi(pts1, pts2, A, x_init, R1, t1, R2, t2, x):
     error_reshape_2 = ca.reshape(error_2, (2 * error_2.shape[1], 1))
     cost = (
         cost
-        + (error_reshape_2.T @ error_reshape_2)
-        + error_reshape_1.T @ error_reshape_1
+        + gain_1 * (error_reshape_2.T @ error_reshape_2)
+        + gain_2 * error_reshape_1.T @ error_reshape_1
     )
 
     ### --- Set up and solve the NLP ---
@@ -205,7 +207,7 @@ def init_optimization_pose(translation, rotation):
     return X_init
 
 
-def cameraCalibrationPose(pts1, A, x_init, x):
+def cameraCalibrationPose(pts1, A, x_init, x, gain):
     # Ensure pts1 and pts2 are of type float (double precision)
     pts1 = np.asarray(pts1, dtype=np.float64)
 
@@ -243,7 +245,7 @@ def cameraCalibrationPose(pts1, A, x_init, x):
     error_1 = U_real1 - U_improved_final_1
     ### Reshape error into a column vector.
     error_reshape_1 = ca.reshape(error_1, (2 * error_1.shape[1], 1))
-    cost = cost + error_reshape_1.T @ error_reshape_1
+    cost = cost + gain * (error_reshape_1.T @ error_reshape_1)
 
     ### --- Set up and solve the NLP ---
     nlp = {"x": a_vector, "f": cost}

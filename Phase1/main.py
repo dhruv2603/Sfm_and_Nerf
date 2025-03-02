@@ -197,27 +197,40 @@ def main():
     ## Show results
     fig = plt.figure()
 
-    # Add a 3D subplot
+    # Add a subplot (if you truly want 3D, use projection='3d' in add_subplot)
     ax = fig.add_subplot(111)
+
+    # Plot first dataset
     plt.scatter(
         X_4N.T[0, :],
         X_4N.T[2, :],
         s=2,
         color="green",
-        label="Dataset 3",
+        label="Linear Triangulation",
     )
+
+    # Plot second dataset (you might want a different label here)
     plt.scatter(
         X_4xN_casadi[0, :],
         X_4xN_casadi[2, :],
         s=1,
         color="blue",
-        label="Dataset 3",
+        label="Non-linear Triangulation",
     )
-    # Labeling the axes and adding a title
-    plt.xlabel("X-axis")
-    plt.ylabel("Y-axis")
-    plt.title("2D Scatter Plot of Two Data Sets")
-    plt.savefig("scatter_plot.pdf", format="pdf")
+
+    # Label axes and add a title
+    plt.xlabel("X")
+    plt.ylabel("Y")
+
+    # Add a legend
+    plt.legend()
+    # Ensure the axes are visible
+    plt.axis("on")
+    plt.grid(True)
+
+    # Save the figure
+    plt.savefig("linear_nonlinear.pdf", format="pdf")
+    plt.show()
 
     # Array with values:
     master_list = np.hstack(
@@ -234,6 +247,8 @@ def main():
     # Init Orientations and translation for the optimizer
     translation_init = C_opt
     rotation_init = R_quaternion_opt
+    translation_init_2 = C_opt
+    rotation_init_2 = R_quaternion_opt
 
     tranlation_total = []
     orientation_total = []
@@ -241,8 +256,9 @@ def main():
     tranlation_total.append(C_opt)
     orientation_total.append(R_quaternion_opt)
     X_world_points = np.empty([0, 4])
-    Aux_world_images_12 = X_4xN_casadi
-    # X_world_points = np.vstack([X_world_points, X_4xN_casadi.T])
+    X_world_points_nobundle = np.empty([0, 4])
+    X_world_points = np.vstack([X_world_points, X_4xN_casadi.T])
+    X_world_points_nobundle = np.vstack([X_world_points_nobundle, X_4xN_casadi.T])
 
     # Traverse in the data list for each new image
     # for image i, get all pairs till i-1 (because you have world coordinates for i-1)
@@ -299,16 +315,47 @@ def main():
 
         # Linear triangulation
         X, t_new, R_new = TriangulationPnp(
-            X_i, x_j, x_i, inlier_idxs, K, translation_init, rotation_init
+            X_i, x_j, x_i, inlier_idxs, K, translation_init, rotation_init, 1
+        )
+
+        X_nobundle, t_new_nobundle, R_new_nobundle = TriangulationPnp(
+            X_i, x_j, x_i, inlier_idxs, K, translation_init_2, rotation_init_2, 0.15
         )
 
         # Nonlinear Triangulation
         X_4xN_casadi, t_new, R_new = NonlinearPnpCasadi(
-            X, x_j, x_i, inlier_idxs, t_new, R_new, translation_init, rotation_init, K
+            X,
+            x_j,
+            x_i,
+            inlier_idxs,
+            t_new,
+            R_new,
+            translation_init,
+            rotation_init,
+            K,
+            1,
+            1,
+        )
+
+        X_4xN_casadi_nobundle, t_new_nobundle, R_new_nobundle = NonlinearPnpCasadi(
+            X_nobundle,
+            x_j,
+            x_i,
+            inlier_idxs,
+            t_new_nobundle,
+            R_new_nobundle,
+            translation_init_2,
+            rotation_init_2,
+            K,
+            0.15,
+            0.15,
         )
 
         ## Computing triangulation
         X_world_points = np.vstack([X_world_points, X_4xN_casadi.T])
+        X_world_points_nobundle = np.vstack(
+            [X_world_points_nobundle, X_4xN_casadi_nobundle.T]
+        )
 
         # Saving data
         tranlation_total.append(t_new)
@@ -318,12 +365,15 @@ def main():
         translation_init = t_new
         rotation_init = R_new
 
+        translation_init_2 = t_new_nobundle
+        rotation_init_2 = R_new_nobundle
+
     with open("./P2Data/Matches/master_list.txt", "w", newline="") as file:
         writer = csv.writer(file, delimiter=" ")
         # Write each list as a row
         writer.writerows(master_list)
     plot_3d_results(
-        tranlation_total, orientation_total, Aux_world_images_12, X_world_points.T
+        tranlation_total, orientation_total, X_world_points.T, X_world_points_nobundle.T
     )
 
 

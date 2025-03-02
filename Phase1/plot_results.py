@@ -6,13 +6,11 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
     camera_initial_rotation = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]])
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
-    ax.set_title("Multiple 3D Frames")
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
     ax.set_xlim([-8, 8])
     ax.set_ylim([-0, 17])
-    ax.set_zlim([-10, 10])
 
     origin = np.array([0, 0, 0])
     global_x = np.array([1, 0, 0])
@@ -143,7 +141,7 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
         points_projected_to_world_augmentation[0, :],
         points_projected_to_world_augmentation[1, :],
         points_projected_to_world_augmentation[2, :],
-        color="red",
+        color="blue",
         marker="o",
         s=2,
     )
