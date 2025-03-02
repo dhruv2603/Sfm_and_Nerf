@@ -1,56 +1,26 @@
 import numpy as np
-import os
-import scipy.linalg
-import tqdm
 import argparse
-from natsort import natsorted
-import scipy
-from scipy.optimize import least_squares
-from EstimateFundamentalMatrix import (
-    EstimateFundamentalMatrix,
-    fundamental_analytical,
-    FundamentalCasadi,
-    fitRansac,
-    recoverPoseFromFundamental,
-    triangulatePoints,
-    projection_values,
-    init_optimization_variables,
-    cameraCalibrationCasADi,
-)
-from GetInlierRANSAC import GetInlierRANSAC
-from EssentialMatrixFromFundamentalMatrix import EssentialMatrixFromFundamentalMatrix
-from ExtractCameraPose import ExtractCameraPose
-from DisambiguateCameraPose import DisambiguateCameraPose
+import csv
 from helperFunctions import *
 import scipy.io as sio
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # Required for 3D plotting
-from LinearTriangulation import LinearTriangulation
-
-# Load the .mat file
-data = sio.loadmat("data_simulation.mat")
-# Access variables stored in the file
-
-
-def SetData(dl, K):
-    sz = len(dl)
-    X = np.ones((3, sz))
-    U = np.ones((3, sz))
-
-    X_c = np.ones((3, sz))
-    U_c = np.ones((3, sz))
-    K_inv = np.linalg.inv(K)
-    for k in range(sz):
-        X[0, k] = float(dl[k][0])
-        X[1, k] = float(dl[k][1])
-
-        U[0, k] = float(dl[k][2])
-        U[1, k] = float(dl[k][3])
-
-        # Points respect to the center of the image
-        X_c[:, k] = K_inv @ X[:, k]
-        U_c[:, k] = K_inv @ U[:, k]
-    return X, U, X_c, U_c
+from GetInlierRANSAC import getFundamentalMatRANSAC, GetInlierRANSAC
+from EstimateFundamentalMatrix import getFundamentalMatrix, EstimateFundamentalMatrix
+from EssentialMatrixFromFundamentalMatrix import EssentialMatrixFromFundamentalMatrix
+from ExtractCameraPose import ExtractCameraPose  # ,recoverPoseFromFundamental
+from LinearTriangulation import triangulatePoints, LinearTriangulation
+from DisambiguateCameraPose import DisambiguateCameraPose
+from NonlinearTriangulation import (
+    init_optimization_variables,
+    cameraCalibrationCasADi,
+    init_optimization_pose,
+    cameraCalibrationPose,
+)
+from aux_functions import show_projection, show_projection_image
+from PnPRANSAC import PnPRANSAC
+from plot_results import plot_3d_results
+from NonlinearPnp import NonlinearPnpCasadi
+from LinearPnp import TriangulationPnp
 
 
 def main():
@@ -66,159 +36,346 @@ def main():
 
     # Number of features for corner detector and possible Ransac
     DATA_DIR = Args.Data
-
+    # Path for calibration matrix and list of matching_ij.txt filenames
     CALIBRATION_PATH, matching_files = sorttxtFiles(DATA_DIR)
     n = len(matching_files) + 1
+    # Create a list of lists of all the matching pairs[[12],[13],[14] ... [45]]
     nFeatures, data_list = readFiles(matching_files, DATA_DIR)
+    # Load the intrinsic calibration matrix
+    K = np.loadtxt(CALIBRATION_PATH)
+    # Get the pixel values for the img 1 and img 2
+    # Shape of each is (3,N)
+    uv_1, uv_2, uv_1_c, uv_2_c = SetData(data_list[0], K)
+
     """
     Compute inliers using RANSAC
     """
-    K = np.loadtxt(CALIBRATION_PATH)
-    iteration = 0
-    for img_n, dl in enumerate(data_list):
-        if iteration == 0:
-            # Get data as matlab
-            uv_1, uv_2, uv_1_c, uv_2_c = SetData(dl, K)
-            ## Initial fundamental matrix
-            # F_init = fundamental_analytical(uv_1, uv_2)
+    homography_inliers = homography_RANSAC(uv_1[:2, :].T, uv_2[:2, :].T)
+    print(uv_1.shape[1])
+    print("Number of inliers from Homography RANSAC: ", len(homography_inliers))
 
-            ## Compute Fundamental robust to oul;iers
-            # best_model, num_iterations, inliers_index = fitRansac(
-            #    uv_1, uv_2, 8, F_init, 0.001
-            # )
-            # U, s, Vh = np.linalg.svd(best_model)
-            # vector = np.array([s[0], s[1], 0])
+    inliers, num_inliers = GetInlierRANSAC(
+        uv_1[:2, :].T, uv_2[:2, :].T, homography_inliers
+    )
+    print("Number of inliers from 8-pt RANSAC: ", num_inliers)
+    getMatches(data_list[0], inliers, n, 0, DATA_DIR)
 
-            F_rank, mask = cv2.findFundamentalMat(
-                uv_1[0:2, :].T,
-                uv_2[0:2, :].T,
-                cv2.FM_RANSAC,
-                ransacReprojThreshold=5,
-                confidence=0.99,
-                maxIters=5000,
+    """
+    Estimate the Fundamental Matrix
+    """
+    F = EstimateFundamentalMatrix(uv_1[:2, :].T[inliers], uv_2[:2, :].T[inliers])
+    print("Fundamental Matrix: ", F)
+    F_cv, mask = cv2.findFundamentalMat(
+        uv_1[:2, :].T[inliers], uv_2[:2, :].T[inliers], method=cv2.FM_8POINT
+    )
+    print("Fundamental matrix from cv2", F_cv)
+
+    e1, e2 = get_epipoles(F)
+    print("Epipoles: ", e1, e2)
+
+    # Get Epipolar Lines
+    lines1, lines2 = get_epipolar_lines(
+        F, uv_1[:2, :].T[inliers], uv_2[:2, :].T[inliers]
+    )
+    print("Epipolar Lines 1: ", lines1)
+    print("Epipolar Lines 2: ", lines2)
+
+    img1 = cv2.imread(os.path.join(DATA_DIR, "1.png"))
+    img2 = cv2.imread(os.path.join(DATA_DIR, "2.png"))
+    # Draw the epipolar lines
+    img1_ep, img2_ep = drawlines(
+        img1.copy(),
+        img2.copy(),
+        lines1,
+        uv_1[:2, :].T[inliers],
+        uv_2[:2, :].T[inliers],
+        DATA_DIR,
+    )
+    # Draw the epipolar lines
+    img1_ep_hat, img2_ep_hat = drawlines(
+        img2.copy(),
+        img1.copy(),
+        lines2,
+        uv_2[:2, :].T[inliers],
+        uv_1[:2, :].T[inliers],
+        DATA_DIR,
+    )
+
+    path = os.path.join(DATA_DIR, "1_epipoles.png")
+    cv2.imwrite(path, img1_ep)
+    path = os.path.join(DATA_DIR, "2_epipoles.png")
+    cv2.imwrite(path, img2_ep)
+    path = os.path.join(DATA_DIR, "1_epipoles_hat.png")
+    cv2.imwrite(path, img1_ep_hat)
+    path = os.path.join(DATA_DIR, "2_epipoles_hat.png")
+    cv2.imwrite(path, img2_ep_hat)
+
+    """
+    Estimate Essential Matrix
+    """
+    E = EssentialMatrixFromFundamentalMatrix(K, F)
+    print("Essential Matrix: ", E)
+
+    """
+    Perform Linear Triangulation
+    """
+    camera_poses = ExtractCameraPose(E)
+
+    C0 = np.zeros(3)
+    R0 = np.eye(3)
+    X_4_comb = []
+    C_4_list = []
+    R_4_list = []
+
+    for C, R in camera_poses:
+        X = LinearTriangulation(
+            K, C0, R0, C, R, uv_1[:2, :].T[inliers], uv_2[:2, :].T[inliers]
+        )
+        X_4_comb.append(X)
+        C_4_list.append(C)
+        R_4_list.append(R)
+
+    """
+    Disambiguate Camera Pose
+    """
+    C, R, X = DisambiguateCameraPose(R_4_list, C_4_list, X_4_comb)
+    C = np.array(C)
+    R = np.array(R)
+    print("Rotation Matrix: ", R)
+    print("Camera position: ", C)
+    X = np.array(X)
+    X_4N = np.hstack((X, np.ones((X.shape[0], 1))))
+
+    """
+    Perform Non Linear Triangulation
+    """
+    # Nonlinear Optimizer for translations, rotation and points in world
+    # Initial values
+    x_init = init_optimization_variables(C, R, X.T)
+    # Points from the optimizer
+    X_opt, C_opt, R_quaternion_opt, distortion_opt = cameraCalibrationCasADi(
+        uv_1.T[inliers].T,
+        uv_2.T[inliers].T,
+        K,
+        x_init,
+        R0,
+        C0.reshape((3, 1)),
+        R,
+        C,
+        X_4N.T,
+    )
+    # Homogenization
+    X_4xN_casadi = np.vstack((X_opt, np.ones((1, X_opt.shape[1]))))
+
+    # Nonlinear Triangulation visualization
+    show_projection(
+        C_opt,
+        R_quaternion_opt,
+        X_4xN_casadi,
+        K,
+        DATA_DIR,
+        data_list[0],
+        n,
+        0,
+        inliers,
+        "Non-linear",
+    )
+
+    # Linear Triangulation visualization
+    show_projection(
+        -R.T @ C,
+        R,
+        X_4N.T,
+        K,
+        DATA_DIR,
+        data_list[0],
+        n,
+        0,
+        inliers,
+        "linear",
+    )
+    ## Show results
+    fig = plt.figure()
+
+    # Add a subplot (if you truly want 3D, use projection='3d' in add_subplot)
+    ax = fig.add_subplot(111)
+
+    # Plot first dataset
+    plt.scatter(
+        X_4N.T[0, :],
+        X_4N.T[2, :],
+        s=2,
+        color="green",
+        label="Linear Triangulation",
+    )
+
+    # Plot second dataset (you might want a different label here)
+    plt.scatter(
+        X_4xN_casadi[0, :],
+        X_4xN_casadi[2, :],
+        s=1,
+        color="blue",
+        label="Non-linear Triangulation",
+    )
+
+    # Label axes and add a title
+    plt.xlabel("X")
+    plt.ylabel("Y")
+
+    # Add a legend
+    plt.legend()
+    # Ensure the axes are visible
+    plt.axis("on")
+    plt.grid(True)
+
+    # Save the figure
+    plt.savefig("linear_nonlinear.pdf", format="pdf")
+    plt.show()
+
+    # Array with values:
+    master_list = np.hstack(
+        [
+            X_4xN_casadi.T,
+            np.ones((X_4xN_casadi.shape[1], 1), dtype=int),
+            uv_1[:2, :].T[inliers],
+            2 * np.ones((X_4xN_casadi.shape[1], 1), dtype=int),
+            uv_2[:2, :].T[inliers],
+        ]
+    )
+    master_list = master_list.tolist()
+
+    # Init Orientations and translation for the optimizer
+    translation_init = C_opt
+    rotation_init = R_quaternion_opt
+    translation_init_2 = C_opt
+    rotation_init_2 = R_quaternion_opt
+
+    tranlation_total = []
+    orientation_total = []
+    # save poses
+    tranlation_total.append(C_opt)
+    orientation_total.append(R_quaternion_opt)
+    X_world_points = np.empty([0, 4])
+    X_world_points_nobundle = np.empty([0, 4])
+    X_world_points = np.vstack([X_world_points, X_4xN_casadi.T])
+    X_world_points_nobundle = np.vstack([X_world_points_nobundle, X_4xN_casadi.T])
+
+    # Traverse in the data list for each new image
+    # for image i, get all pairs till i-1 (because you have world coordinates for i-1)
+    for i in range(3, n + 1):
+        # Store the world coordinates corresponding to each new image i (remember shape is features x 4)
+        X_i = np.empty([0, 3])
+        # store the corresponding image i pixels in another array
+        x_i = np.empty([0, 2])
+        x_j = np.empty([0, 2])
+        # complete tringulation related to image i wrt all images j
+        triangulate_j_list = []
+        # for image i get images from 1 to i-1
+        for j in range(1, i):
+            # obtain the index of the data list match images (j,i)
+            match_idx = (j - 1) * (10 - j) / 2 + i - j - 1
+            # get the list matching[ji]
+            dl = data_list[int(match_idx)]
+            # get the uv indexes for j and i
+            uv_j, uv_i, uv_j_c, uv_i_c = SetData(dl, K)
+
+            homography_inliers = homography_RANSAC(uv_j[:2, :].T, uv_i[:2, :].T)
+            print("Total number of features: ", uv_j.shape[1])
+            print("Number of inliers from Homography RANSAC: ", len(homography_inliers))
+
+            inliers, num_inliers = GetInlierRANSAC(
+                uv_j[:2, :].T, uv_i[:2, :].T, homography_inliers
             )
-            # F_rank = U @ np.diag(vector) @ Vh
-            print(np.linalg.matrix_rank(F_rank))
-            inlier_indices = np.where(mask.ravel() == 1)[0]
-            inliers_index = inlier_indices.tolist()
 
-            # Get rotation and translation of the fundamental matrix
-            R_ransac, t_ransac, _inliers = recoverPoseFromFundamental(
-                F_rank, K, uv_1[0:2, :], uv_2[0:2, :]
-            )
-            # P1 = K @ np.hstack((np.eye(3), np.zeros((3, 1))))
-            # P2 = K @ np.hstack((R_ransac, t_ransac.reshape(3, 1)))
-
-            I = np.eye(3, 3)
-            t = np.zeros((3, 1))
-            # H1 = np.block([[I, t], [np.zeros((1, 3)), np.array([[1]])]])
-            # H2 = np.block(
-            # [
-            #    [R_ransac, t_ransac.reshape(3, 1)],
-            #    [np.zeros((1, 3)), np.array([[1]])],
-            # ]
-            # )
-            E = EssentialMatrixFromFundamentalMatrix(K, F_rank)
-            R_l, C_l = ExtractCameraPose(E)
-
-            # Projection on the 3d world
-
-            pts3D_aux_0, aux_number_0 = LinearTriangulation(dl, K, R_l[0], (C_l[0]))
-            pts3D_aux_0 = np.array(pts3D_aux_0).T
-            print(aux_number_0)
-            pts3D_aux_1, aux_number_1 = LinearTriangulation(dl, K, R_l[1], (C_l[1]))
-            pts3D_aux_1 = np.array(pts3D_aux_1).T
-            print(aux_number_1)
-            pts3D_aux_2, aux_number_2 = LinearTriangulation(dl, K, R_l[2], C_l[2])
-            pts3D_aux_2 = np.array(pts3D_aux_2).T
-            print(aux_number_2)
-            pts3D_aux_3, aux_number_3 = LinearTriangulation(dl, K, R_l[3], C_l[3])
-            pts3D_aux_3 = np.array(pts3D_aux_3).T
-            print(aux_number_3)
-
-            P1 = K @ np.hstack((np.eye(3), np.zeros((3, 1))))
-            P2 = K @ np.hstack((R_ransac, t_ransac.reshape(3, 1)))
-
-            pts3D_4xN = triangulatePoints(uv_1, uv_2, P1, P2)
-            pts3D_4xN = pts3D_4xN / pts3D_4xN[3, :]
-
-            # Pixels values on the image
-            # pixels_1 = projection_values(H1, pts3D_4xN, 0.0, 0.0, K)
-            # pixels_2 = projection_values(H2, pts3D_4xN, 0.0, 0.0, K)
-
-            # plotMatches(dl, n, img_n, DATA_DIR, pixels_1, pixels_2, "Classic")
-            getMatchesNew(dl, inliers_index, n, img_n, DATA_DIR, "Ransacopencv")
-
-            ### Optimization section
-            x_init = init_optimization_variables(t_ransac, R_ransac, pts3D_4xN[0:3, :])
-            x_vector_opt, x_trans_opt, R_quaternion_opt, distortion_opt = (
-                cameraCalibrationCasADi(
-                    uv_1,
-                    uv_2,
-                    K,
-                    x_init,
-                    I,
-                    t,
-                    R_ransac,
-                    t_ransac,
-                    pts3D_aux_1,
+            # Perform RANSAC to remove outliers
+            uv_j = uv_j.T[:, :2]
+            uv_i = uv_i.T[:, :2]
+            # store indexes of array which need triangulation
+            needs_triangulation_idxs_list = []
+            # for each row in uv_j
+            # print("Needs Triangulation len: ", len(needs_triangulation_idxs_list))
+            X_i, x_i, x_j, master_list, needs_triangulation_idxs_list = (
+                checkNewFeatures(
+                    uv_i,
+                    uv_j,
+                    master_list,
+                    i,
+                    j,
+                    X_i,
+                    x_i,
+                    x_j,
+                    needs_triangulation_idxs_list,
                 )
             )
-            pts3D_4xN_casadi = np.vstack(
-                (x_vector_opt, np.ones((1, x_vector_opt.shape[1])))
-            )
+            # print("Needs triangulation list: ", needs_triangulation_idxs_list)
+            triangulate_j_list.append(needs_triangulation_idxs_list)
 
-            H3 = np.block(
-                [
-                    [R_quaternion_opt, x_trans_opt.reshape(3, 1)],
-                    [np.zeros((1, 3)), np.array([[1]])],
-                ]
-            )
+        # Calculate the P matrix
+        P_i, inlier_idxs, R_i, t_i = PnPRANSAC(X_i, x_i, K)
 
-            #### Nonlinear projection
-            # pixels_3 = projection_values(H1, pts3D_4xN_casadi, 0, 0, K)
-            # pixels_4 = projection_values(H3, pts3D_4xN_casadi, 0, 0, K)
+        # Linear triangulation
+        X, t_new, R_new = TriangulationPnp(
+            X_i, x_j, x_i, inlier_idxs, K, translation_init, rotation_init, 1
+        )
 
-            # pixels_3 = np.array(pixels_3)
-            # pixels_4 = np.array(pixels_4)
+        X_nobundle, t_new_nobundle, R_new_nobundle = TriangulationPnp(
+            X_i, x_j, x_i, inlier_idxs, K, translation_init_2, rotation_init_2, 0.15
+        )
 
-            # plotMatches(dl, n, img_n, DATA_DIR, pixels_3, pixels_4, "Non-linear")
+        # Nonlinear Triangulation
+        X_4xN_casadi, t_new, R_new = NonlinearPnpCasadi(
+            X,
+            x_j,
+            x_i,
+            inlier_idxs,
+            t_new,
+            R_new,
+            translation_init,
+            rotation_init,
+            K,
+            1,
+            1,
+        )
 
-            # Dhruv Method
-            # inliers_dl, idxs = GetInlierRANSAC(dl)
-            # getMatches(dl, inliers_index, n, img_n, DATA_DIR)
-            # F = EstimateFundamentalMatrix(inliers_dl)
-            print("Values")
-        iteration = iteration + 1
+        X_4xN_casadi_nobundle, t_new_nobundle, R_new_nobundle = NonlinearPnpCasadi(
+            X_nobundle,
+            x_j,
+            x_i,
+            inlier_idxs,
+            t_new_nobundle,
+            R_new_nobundle,
+            translation_init_2,
+            rotation_init_2,
+            K,
+            0.15,
+            0.15,
+        )
 
-        # Extract x, y, and z coordinates from the matrix
-    # plt.scatter(pts3D_4xN[0, :], pts3D_4xN[2, :], color="red", label="Dataset 3")
-    # plt.scatter(
-    # plt.scatter(
-    # plt.scatter(
-    plt.scatter(
-        pts3D_4xN_casadi[0, :],
-        pts3D_4xN_casadi[2, :],
-        s=5,
-        color="blue",
-        label="Dataset 3",
+        ## Computing triangulation
+        X_world_points = np.vstack([X_world_points, X_4xN_casadi.T])
+        X_world_points_nobundle = np.vstack(
+            [X_world_points_nobundle, X_4xN_casadi_nobundle.T]
+        )
+
+        # Saving data
+        tranlation_total.append(t_new)
+        orientation_total.append(R_new)
+
+        # Set initials
+        translation_init = t_new
+        rotation_init = R_new
+
+        translation_init_2 = t_new_nobundle
+        rotation_init_2 = R_new_nobundle
+
+    with open("./P2Data/Matches/master_list.txt", "w", newline="") as file:
+        writer = csv.writer(file, delimiter=" ")
+        # Write each list as a row
+        writer.writerows(master_list)
+    plot_3d_results(
+        tranlation_total, orientation_total, X_world_points.T, X_world_points_nobundle.T
     )
-    plt.scatter(
-        pts3D_4xN[0, :],
-        pts3D_4xN[2, :],
-        s=5,
-        color="red",
-        label="Dataset 3",
-    )
 
-    # Labeling the axes and adding a title
-    plt.xlabel("X-axis")
-    plt.ylabel("Y-axis")
-    plt.title("2D Scatter Plot of Two Data Sets")
-    plt.savefig("scatter_plot.pdf", format="pdf")
-
-
-#
 
 if __name__ == "__main__":
     main()

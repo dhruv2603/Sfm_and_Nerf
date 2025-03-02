@@ -144,6 +144,7 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
         color="blue",
         marker="o",
         s=2,
+        label="after bundle",
     )
     ax.scatter(
         points_projected_to_world[0, :],
@@ -152,6 +153,7 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
         color="green",
         marker="o",
         s=4,
+        label="before bundle",
     )
     # ax.set_xlim(
     #    [
@@ -159,6 +161,7 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
     #        np.max(points_projected_to_world[0, :]) + 5,
     #    ]
     # )
+    plt.legend()
     ax.view_init(elev=90, azim=-90)
     plt.savefig("3d_camera_poses.pdf", bbox_inches="tight")
     plt.show()
