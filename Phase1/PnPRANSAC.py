@@ -4,6 +4,8 @@ import cv2
 import random
 from LinearPnp import LinearPnP
 
+random.seed(1)
+
 
 def PnPRANSAC(X_i, x_i, K, N=5000, Tau=15):
     """

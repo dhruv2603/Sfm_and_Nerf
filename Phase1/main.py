@@ -262,49 +262,35 @@ def main():
             dl = data_list[int(match_idx)]
             # get the uv indexes for j and i
             uv_j, uv_i, uv_j_c, uv_i_c = SetData(dl, K)
+
+            homography_inliers = homography_RANSAC(uv_j[:2, :].T, uv_i[:2, :].T)
+            print("Total number of features: ", uv_j.shape[1])
+            print("Number of inliers from Homography RANSAC: ", len(homography_inliers))
+
+            inliers, num_inliers = GetInlierRANSAC(
+                uv_j[:2, :].T, uv_i[:2, :].T, homography_inliers
+            )
+
             # Perform RANSAC to remove outliers
             uv_j = uv_j.T[:, :2]
             uv_i = uv_i.T[:, :2]
             # store indexes of array which need triangulation
             needs_triangulation_idxs_list = []
             # for each row in uv_j
-            for a, each_row in enumerate(uv_j):
-                # Flag to check if the point is already added in the master list
-                flag_a_in_ml = 0
-                # and each row in Master list
-                for each_Mrow in master_list:
-                    # calculate the length of the Master list row
-                    Mrow_len = len(each_Mrow)
-                    k = 0
-                    # traverse throgh all ids in the row and check if the row has the id j
-                    while 3 + 3 * k + 1 < Mrow_len:
-                        if each_Mrow[3 + 3 * k + 1] == j:
-                            if (
-                                each_Mrow[3 + 3 * k + 2] == each_row[0]
-                                and each_Mrow[3 + 3 * k + 3] == each_row[1]
-                            ):
-                                flag_a_in_ml = 1
-                                m = k + 1
-                                flag = 0
-                                while 3 + 3 * m + 1 < Mrow_len:
-                                    if each_Mrow[3 + 3 * k + 1] == j:
-                                        flag = 1
-                                        break
-                                    m = m + 1
-                                if flag == 1:
-                                    break
-                                each_Mrow.append(i)
-                                each_Mrow.append(uv_i[a, 0])
-                                each_Mrow.append(uv_i[a, 1])
-                                X_i = np.vstack([X_i, each_Mrow[:3]])
-                                x_i = np.vstack([x_i, uv_i[a]])
-                                x_j = np.vstack([x_j, uv_j[a]])
-                                break
-                        k = k + 1
-                if flag_a_in_ml == 0:
-                    # store the index list in the matching list for which there is no world point
-                    needs_triangulation_idxs_list.append(a)
             # print("Needs Triangulation len: ", len(needs_triangulation_idxs_list))
+            X_i, x_i, x_j, master_list, needs_triangulation_idxs_list = (
+                checkNewFeatures(
+                    uv_i,
+                    uv_j,
+                    master_list,
+                    i,
+                    j,
+                    X_i,
+                    x_i,
+                    x_j,
+                    needs_triangulation_idxs_list,
+                )
+            )
             # print("Needs triangulation list: ", needs_triangulation_idxs_list)
             triangulate_j_list.append(needs_triangulation_idxs_list)
 

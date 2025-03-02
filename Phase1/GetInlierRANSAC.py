@@ -4,6 +4,8 @@ import random
 from tqdm import tqdm
 from EstimateFundamentalMatrix import getFundamentalMatrix, EstimateFundamentalMatrix
 
+np.random.seed(10)
+
 
 def randomSampleCorrPoint(ptsA, ptsB, num_point=8):
 
@@ -143,7 +145,8 @@ def getFundamentalMatRANSAC(ptsA, ptsB, tol, num_sample=8, confidence=0.99):
 
     return best_F, best_inlier
 
-def GetInlierRANSAC(pixels1,pixels2,homo_inliers,N=2000,tau=0.5):
+
+def GetInlierRANSAC(pixels1, pixels2, homo_inliers, N=2000, tau=0.5):
     """
     Get the inliers using RANSAC with the Fundamental Matrix equation.
     Inputs: pixels1 - (M,2) array of pixel values of image 1
@@ -158,27 +161,27 @@ def GetInlierRANSAC(pixels1,pixels2,homo_inliers,N=2000,tau=0.5):
         curr_max = 0
         inliers_i = []
         inliers = []
-        idx = np.random.randint(0,pixels1.shape[0],8)
+        idx = np.random.randint(0, pixels1.shape[0], 8)
         rand_eight_pts_1 = pixels1[idx, :]
         rand_eight_pts_2 = pixels2[idx, :]
-        
+
         F = EstimateFundamentalMatrix(rand_eight_pts_1, rand_eight_pts_2)
-        
+
         for j, (pt1, pt2) in enumerate(zip(pixels1, pixels2)):
             x1, y1 = pt1[0], pt1[1]
             x2, y2 = pt2[0], pt2[1]
-            
+
             X1 = np.array([x1, y1, 1])
             X2 = np.array([x2, y2, 1])
-            
-            val = X1.T @F @ X2 #X2 @ F @ X1
-            
-            if(abs(val) < tau and j in homo_inliers):
-                num_inliers +=1
+
+            val = X1.T @ F @ X2  # X2 @ F @ X1
+
+            if abs(val) < tau and j in homo_inliers:
+                num_inliers += 1
                 inliers_i.append(j)
-                
-        if (num_inliers > curr_max):
+
+        if num_inliers > curr_max:
             curr_max = num_inliers
             inliers = inliers_i
-    
+
     return inliers, curr_max

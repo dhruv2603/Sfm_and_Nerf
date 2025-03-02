@@ -5,6 +5,8 @@ from tqdm import tqdm
 import cv2
 from matplotlib import pyplot as plt
 
+np.random.seed(42)
+
 
 def sorttxtFiles(path):
     """
@@ -72,6 +74,7 @@ def readFiles(file_names, data_path):
 
     return nFeatures, data_list
 
+
 def SetData(dl, K):
     """
     Input : (N,4) size datalist of corresponding images
@@ -96,23 +99,23 @@ def SetData(dl, K):
         U_c[:, k] = K_inv @ U[:, k]
     return X, U, X_c, U_c
 
-def homography_RANSAC(pixels1, pixels2, N = 2000, tau = 10):
+
+def homography_RANSAC(pixels1, pixels2, N=2000, tau=10):
     best_inliers = []
-    
+
     print("Running RANSAC Iterations for Homography")
     for i in tqdm(range(N)):
         # Randomly select 4 points
         idx = np.random.choice(len(pixels1), 4, replace=False)
         rand_pixels_1 = pixels1[idx]
         rand_pixels_2 = pixels2[idx]
-        
-        
+
         rand_pixels_1 = np.float32([rand_pixels_1]).reshape(-1, 1, 2)
         rand_pixels_2 = np.float32([rand_pixels_2]).reshape(-1, 1, 2)
-        
+
         # Compute the Perspective Transform
         H = cv2.getPerspectiveTransform(rand_pixels_1, rand_pixels_2)
-        
+
         # Compute the inliers
         inliers = []
         for j, (pt1, pt2) in enumerate(zip(pixels1, pixels2)):
@@ -123,11 +126,12 @@ def homography_RANSAC(pixels1, pixels2, N = 2000, tau = 10):
             e = np.linalg.norm(pt2 - est_pt2)
             if e < tau:
                 inliers.append(j)
-        
+
         if len(inliers) > len(best_inliers):
             best_inliers = inliers
-    
+
     return best_inliers
+
 
 def getMatches(dl, idxs, n_imgs, id, path):
     """
@@ -164,6 +168,7 @@ def getMatches(dl, idxs, n_imgs, id, path):
             os.makedirs(output_path)
         cv2.imwrite(output_path + "pair_" + str(i) + str(j) + ".png", imgs)
 
+
 def get_epipoles(F):
     """
     Get the epipoles
@@ -171,15 +176,16 @@ def get_epipoles(F):
     Output: e1 - Epipole of image 1
             e2 - Epipole of image 2
     """
-    U,_,V = np.linalg.svd(F)
+    U, _, V = np.linalg.svd(F)
     e1 = V[-1, :]
-    e1 = e1/e1[-1]
-    
-    U,_,V = np.linalg.svd(F.T)
+    e1 = e1 / e1[-1]
+
+    U, _, V = np.linalg.svd(F.T)
     e2 = V[-1, :]
-    e2 = e2/e2[-1]
-    
+    e2 = e2 / e2[-1]
+
     return e1, e2
+
 
 def get_epipolar_lines(F, pixels_1, pixels_2):
     """
@@ -196,7 +202,8 @@ def get_epipolar_lines(F, pixels_1, pixels_2):
     lines2 = pixels_2 @ F.T
     return lines1, lines2
 
-def drawlines(img1, img2, lines, pts1, pts2,path):
+
+def drawlines(img1, img2, lines, pts1, pts2, path):
     """
     Draw the epipolar lines and corresponding points on the images.
     Inputs: img1
@@ -215,14 +222,15 @@ def drawlines(img1, img2, lines, pts1, pts2,path):
         img2 = img2
     for r, pt1, pt2 in zip(lines, pts1, pts2):
         color = tuple(np.random.randint(0, 255, 3).tolist())
-        x0, y0 = map(int, [0, -r[2]/r[1] ])
-        x1, y1 = map(int, [c, -(r[2]+r[0]*c)/r[1] ])
+        x0, y0 = map(int, [0, -r[2] / r[1]])
+        x1, y1 = map(int, [c, -(r[2] + r[0] * c) / r[1]])
         img1 = cv2.line(img1, (x0, y0), (x1, y1), color, 1)
         pt1 = tuple(map(int, pt1))
         pt2 = tuple(map(int, pt2))
         img1 = cv2.circle(img1, tuple(pt1), 2, color, -1)
         img2 = cv2.circle(img2, tuple(pt2), 2, color, -1)
     return img1, img2
+
 
 def plotMatches(dl, idxs, n_imgs, id, path, projection_1, projection_2, name):
     i = 1
@@ -337,3 +345,86 @@ def getMatchesNew(dl, idxs, n_imgs, id, path, name):
         output_path + "/" + "pair_" + name + "_" + str(i) + str(j) + ".png", imgs
     )
     return None
+
+
+def checkNewFeatures(
+    uv_i, uv_j, master_list, i, j, X_i, x_i, needs_triangulation_idxs_list
+):
+    for a, each_row in enumerate(uv_j):
+        # Flag to check if the point is already added in the master list
+        flag_a_in_ml = 0
+        # and each row in Master list
+        for each_Mrow in master_list:
+            # calculate the length of the Master list row
+            Mrow_len = len(each_Mrow)
+            k = 0
+            # traverse throgh all ids in the row and check if the row has the id j
+            while 3 + 3 * k + 1 < Mrow_len:
+                if each_Mrow[3 + 3 * k + 1] == j:
+                    if (
+                        each_Mrow[3 + 3 * k + 2] == each_row[0]
+                        and each_Mrow[3 + 3 * k + 3] == each_row[1]
+                    ):
+                        flag_a_in_ml = 1
+                        m = k + 1
+                        flag = 0
+                        while 3 + 3 * m + 1 < Mrow_len:
+                            if each_Mrow[3 + 3 * k + 1] == j:
+                                flag = 1
+                                break
+                            m = m + 1
+                        if flag == 1:
+                            break
+                        each_Mrow.append(i)
+                        each_Mrow.append(uv_i[a, 0])
+                        each_Mrow.append(uv_i[a, 1])
+                        X_i = np.vstack([X_i, each_Mrow[:3]])
+                        x_i = np.vstack([x_i, uv_i[a]])
+                        break
+                k = k + 1
+        if flag_a_in_ml == 0:
+            # store the index list in the matching list for which there is no world point
+            needs_triangulation_idxs_list.append(a)
+    return X_i, x_i, master_list, needs_triangulation_idxs_list
+
+
+def checkNewFeatures(
+    uv_i, uv_j, master_list, i, j, X_i, x_i, x_j, needs_triangulation_idxs_list
+):
+    for a, each_row in enumerate(uv_j):
+        # Flag to check if the point is already added in the master list
+        flag_a_in_ml = 0
+        # and each row in Master list
+        for each_Mrow in master_list:
+            # calculate the length of the Master list row
+            Mrow_len = len(each_Mrow)
+            k = 0
+            # traverse throgh all ids in the row and check if the row has the id j
+            while 3 + 3 * k + 1 < Mrow_len:
+                if each_Mrow[3 + 3 * k + 1] == j:
+                    if (
+                        each_Mrow[3 + 3 * k + 2] == each_row[0]
+                        and each_Mrow[3 + 3 * k + 3] == each_row[1]
+                    ):
+                        flag_a_in_ml = 1
+                        m = k + 1
+                        flag = 0
+                        while 3 + 3 * m + 1 < Mrow_len:
+                            if each_Mrow[3 + 3 * k + 1] == j:
+                                flag = 1
+                                break
+                            m = m + 1
+                        if flag == 1:
+                            break
+                        each_Mrow.append(i)
+                        each_Mrow.append(uv_i[a, 0])
+                        each_Mrow.append(uv_i[a, 1])
+                        X_i = np.vstack([X_i, each_Mrow[:3]])
+                        x_i = np.vstack([x_i, uv_i[a]])
+                        x_j = np.vstack([x_j, uv_j[a]])
+                        break
+                k = k + 1
+        if flag_a_in_ml == 0:
+            # store the index list in the matching list for which there is no world point
+            needs_triangulation_idxs_list.append(a)
+    return X_i, x_i, x_j, master_list, needs_triangulation_idxs_list

@@ -10,7 +10,8 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
-    ax.set_ylim([-0, 20])
+    ax.set_xlim([-8, 8])
+    ax.set_ylim([-0, 17])
     ax.set_zlim([-10, 10])
 
     origin = np.array([0, 0, 0])
@@ -84,9 +85,7 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
     )
 
     # Label the initial camera frame near the origin
-    ax.text(
-        0, 0, 0, "Camera 1", color="black", fontsize=8
-    )  # x,y,z position in 3D  # the text
+    ax.text(0, 0, 0, "1", color="black", fontsize=8)  # x,y,z position in 3D  # the text
 
     # --- Now loop over subsequent frames and label them: Camera 2, Camera 3, etc. ---
     for k in range(len(orientation_total)):
@@ -131,7 +130,7 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
         )
 
         # Label each subsequent camera frame:
-        camera_label = f"Camera {k + 2}"
+        camera_label = f"{k + 2}"
         ax.text(
             points[0], points[1], points[2], camera_label, color="black", fontsize=8
         )
@@ -146,7 +145,7 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
         points_projected_to_world_augmentation[2, :],
         color="red",
         marker="o",
-        s=5,
+        s=2,
     )
     ax.scatter(
         points_projected_to_world[0, :],
@@ -154,14 +153,14 @@ def plot_3d_results(tranlation_total, orientation_total, X_4xN_casadi, X_new):
         points_projected_to_world[2, :],
         color="green",
         marker="o",
-        s=8,
+        s=4,
     )
-    ax.set_xlim(
-        [
-            np.min(points_projected_to_world[0, :]),
-            np.max(points_projected_to_world[0, :]) + 5,
-        ]
-    )
+    # ax.set_xlim(
+    #    [
+    #        np.min(points_projected_to_world[0, :]),
+    #        np.max(points_projected_to_world[0, :]) + 5,
+    #    ]
+    # )
     ax.view_init(elev=90, azim=-90)
     plt.savefig("3d_camera_poses.pdf", bbox_inches="tight")
     plt.show()
