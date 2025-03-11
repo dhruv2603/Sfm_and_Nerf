@@ -11,6 +11,8 @@ import json
 from natsort import natsorted
 import imageio.v3 as imageio
 import time
+import cv2
+import pdb
 
 from NeRFModel import *
 from datalogger import Logger
@@ -37,8 +39,13 @@ def loadDataset(data_path, mode):
     camera_angle_x = data.get("camera_angle_x",0)
     # Load the images
     files = natsorted(os.listdir(img_path))
-    images = [imageio.imread(os.path.join(img_path, i)) for i in files if i.endswith(".png") and "_depth_" not in i]
+    # Resize the images
+    images = [cv2.resize(imageio.imread(os.path.join(img_path, i)), (400, 400), interpolation=cv2.INTER_LINEAR) for i in files if i.endswith(".png") and "_depth_" not in i]
+    # images = [imageio.imread(os.path.join(img_path, i)) for i in files if i.endswith(".png") and "_depth_" not in i]
     images = (np.array(images)/255.).astype(np.float32)
+    # Make 3 channel instead of 4 channel
+    if images.shape[-1] == 4: # RGBA --> RGB
+        images = images[..., :3] * images[..., -1:]  + (1 - images[..., -1:])
     # Specify the image size
     width = images[0].shape[1]
     height = images[0].shape[0]
@@ -76,20 +83,19 @@ def PixelToRay(images, pose, K):
     Batch_size,H,W,_ = images.shape
     o = np.zeros((Batch_size,H*W,3))
     d = np.zeros((Batch_size,H*W,3))
-    values = images.reshape((Batch_size,H*W,3))
+    values = images.reshape((Batch_size,H*W,-1))
 
     for i in range(Batch_size):
         cam2world = pose[i]
         u = np.arange(W)
         v = np.arange(H)
         u,v = np.meshgrid(u,v)
-        dir = np.stack((u-K[0][2])/K[0][0],-(v - H/2)/K[1][1],-np.ones_like(u),axis=-1)
+        dir = np.stack(((u-K[0][2])/K[0][0],-(v - H/2)/K[1][1],-np.ones_like(u)),axis=-1)
         dir = (cam2world[:3,:3]@dir[...,None]).squeeze(-1)
         dir = dir/np.linalg.norm(dir,axis=-1,keepdims=True)
         d[i] = dir.reshape(-1,3)
         o[i] = cam2world[:3,3]
-    
-    return o.reshape(-1,3), d.reshape(-1,3), values
+    return o.reshape(-1,3), d.reshape(-1,3), values.reshape(-1,3)
 
 def generateBatch(images, poses, camera_info):
     """
@@ -102,6 +108,7 @@ def generateBatch(images, poses, camera_info):
         A set of rays
     """
     o,d,values = PixelToRay(images,poses,camera_info["camera_matrix"])
+    # shape of rays is (N,9)
     rays = np.concatenate((o,d,values),-1)
     return rays
 
@@ -123,31 +130,31 @@ def render(model, rays_origin, rays_direction, tn=2, tf=6, samples=192, clear_bg
     #calculate the upper bound of each interval
     ubounds = torch.tensor([tn + i * (tf - tn) / samples for i in range(1, samples + 1)])
     #calculate the distance between each sample
-    t_i = torch.zeros(samples)
+    t_i = torch.zeros(samples, device=DEVICE)
     for i in range(samples):
-        t_i[i] = torch.rand((tf - tn) / samples) * (ubounds[i] - lbounds[i]) + lbounds[i]
-    delta = torch.diff(t_i)
+        t_i[i] = torch.rand(1, device=DEVICE)*((tf - tn) / samples) * (ubounds[i] - lbounds[i]) + lbounds[i]
+    delta = torch.cat((torch.diff(t_i),torch.tensor([1e10],device=DEVICE)),-1)
     #calculate the sampled point coords on the ray
     sampled_ray_pts = rays_origin.unsqueeze(1) + t_i.unsqueeze(-1)*rays_direction.unsqueeze(1)
     #get the colour and opacity values for the points
-    C_hat,sigma = model(sampled_ray_pts.reshape(-1,3), rays_direction.expand(samples,sampled_ray_pts.shape[0],3).transpose(0,1).reshape(-1,3))
-    C_hat   = C_hat.view(sampled_ray_pts,samples,3)
+    sigma,C_hat = model(sampled_ray_pts.reshape(-1,3), rays_direction.expand(samples,sampled_ray_pts.shape[0],3).transpose(0,1).reshape(-1,3))
+    C_hat   = C_hat.view(sampled_ray_pts.shape[0],samples,3)
     sigma   = sigma.view(sampled_ray_pts.shape[0],samples)
     alpha   = 1 - torch.exp(-sigma*delta)
     #calculate the transmission values
-    T       = torch.cumprod(1-alpha)
+    T       = torch.cumprod(1-alpha, dim = 1)
     #calculate the importance weights of each sampled point
-    weights = torch.cat((torch.ones(T.shape[0],1,device = T.device),T[:,:,-1]),dim=-1).unsqueeze(2)*alpha.unsqueeze(2)
+    weights = torch.cat((torch.ones(T.shape[0],1,device = T.device),T[:,:-1]),dim=-1).unsqueeze(2)*alpha.unsqueeze(2)
 
     if clear_bg:
-        C_r = weights*C_hat.sum(1)
+        C_r = (weights*C_hat).sum(1)
         weights_sum = weights.sum(dim=[1,2])
         return C_r + (1 - weights_sum).unsqueeze(-1)
     else:
         return (weights.unsqueeze(-1)*C_hat).sum(1)
 
 
-def loss(groundtruth, prediction):
+def Loss(groundtruth, prediction):
     """
     Input:
         groundtruth: pixel values of image
@@ -172,7 +179,7 @@ def train(images, poses, camera_info, args):
     """
     print("-----Training Mode entered -----")
     # Instantiate the model
-    model = NeRFmodel(args.n_pos_freq,args.n_dirc_freq)
+    model = NeRFmodel(args.n_pos_freq,args.n_dirc_freq).to(DEVICE)
     # define the optimizer
     optimizer = torch.optim.Adam(model.parameters(),lr=args.lrate)
     # setup the scheduler
@@ -184,7 +191,7 @@ def train(images, poses, camera_info, args):
     # calculate number of batches
     num_batches = int(len(rays)/args.n_rays_batch)
 
-    for epoch in tqdm(args.num_epochs):
+    for epoch in tqdm(range(args.num_epochs)):
         for i in tqdm(range(num_batches)):
             # model in training mode for gradients
             model.train()
@@ -203,11 +210,11 @@ def train(images, poses, camera_info, args):
             # predict the image pixel color using NeRFmodel
             C_hat_batch  = render(model, batch_o, batch_d, args.tn, args.tf, args.n_sample)
             # calculate the loss between groundtruth and prediction
-            loss,psnr = loss(C_r_batch, C_hat_batch)
+            loss,psnr = Loss(C_r_batch, C_hat_batch)
             # clear the gradients from before
             optimizer.zero_grad()
             # caculate the new gradients
-            loss.backwards()
+            loss.backward()
             optimizer.step()
 
             if i % 1000 == 0:
@@ -236,7 +243,7 @@ def train(images, poses, camera_info, args):
 def val(model, epoch, args, mode = "val"):
     print("---------Validation Mode entered---------")
 
-    camera_info,images,poses = loadDataset(args.data_path, mode)
+    images,poses,camera_info = loadDataset(args.data_path, mode)
     img_idxs = np.arange(len(images))
     rand_idxs = np.random.choice(img_idxs, 4)
     val_imgs = images[rand_idxs]
@@ -257,7 +264,7 @@ def val(model, epoch, args, mode = "val"):
         val_C_r = torch.tensor(batch[:, 6:]).to(DEVICE)
 
         val_C_hat = render(model, val_o, val_d, args.tn, args.tf, args.n_sample)
-        loss, psnr = loss(val_C_r, val_C_hat)
+        loss, psnr = Loss(val_C_r, val_C_hat)
         avg_loss += loss.item()
 
         if i % 1000 == 0:
@@ -273,7 +280,7 @@ def val(model, epoch, args, mode = "val"):
 def test(model, epoch, args, mode = "test"):
     print("---------Test Mode entered---------")
 
-    camera_info,test_images,test_poses = loadDataset(args.data_path, mode)
+    test_images,test_poses, camera_info = loadDataset(args.data_path, mode)
     # img_idxs = np.arange(len(images))
     # rand_idxs = np.random.choice(img_idxs, 4)
     # val_imgs = images[rand_idxs]
@@ -301,7 +308,7 @@ def test(model, epoch, args, mode = "test"):
         test_C_r = torch.tensor(batch[:, 6:]).to(DEVICE)
 
         test_C_hat = render(model, test_o, test_d, args.tn, args.tf, args.n_sample)
-        loss, psnr = loss(test_C_r, test_C_hat)
+        loss, psnr = Loss(test_C_r, test_C_hat)
         avg_loss += loss.item()
 
         if i % 1000 == 0:
@@ -320,12 +327,14 @@ def main(args):
         os.makedirs(args.logs_path)
     if not os .path.exists(args.checkpoint_path):
         os.makedirs(args.checkpoint_path)
+    # Check CUDA
+    print("Running on Deivce: ", DEVICE)
     # load data
     print("Loading data...")
     images, poses, camera_info = loadDataset(args.data_path, args.mode)
     # initialize logger
     global logger
-    logger = Logger(args.log_path)
+    logger = Logger(args.logs_path)
     logger.log(tag='args',data_path = args.data_path, log_path = args.logs_path, mode = args.mode, lrate=args.lrate, 
                positional_encodings = args.n_pos_freq, directional_encodings = args.n_dirc_freq, batch_size = args.n_rays_batch, 
                samples_per_ray = args.n_sample, near_plane_dist = args.tn, far_plane_dist = args.tf, epochs = args.num_epochs,
@@ -346,7 +355,7 @@ def configParser():
     parser.add_argument('--lrate',type=float,default=5e-4,help="training learning rate")
     parser.add_argument('--n_pos_freq',type=int,default=10,help="number of positional encoding frequencies for position")
     parser.add_argument('--n_dirc_freq',type=int,default=4,help="number of positional encoding frequencies for viewing direction")
-    parser.add_argument('--n_rays_batch',type=int,default=32*32*4,help="number of rays per batch")
+    parser.add_argument('--n_rays_batch',type=int,default=32*32,help="number of rays per batch")
     parser.add_argument('--n_sample',type=int,default=256,help="number of sample per ray")
     parser.add_argument('--tn', type=int, default=2, help='tn Near plane distance')
     parser.add_argument('--tf', type=int, default=6, help='tf Far plane distance')
