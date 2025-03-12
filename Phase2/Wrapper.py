@@ -13,12 +13,18 @@ import imageio.v3 as imageio
 import time
 import cv2
 import pdb
+from skimage.metrics import structural_similarity
 
 from NeRFModel import *
 from datalogger import Logger
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(0)
+
+def print_memory_usage(tag):
+    allocated_memory = torch.cuda.memory_allocated() / (1024 ** 3)  # Convert to GB
+    reserved_memory = torch.cuda.memory_reserved() / (1024 ** 3)  # Convert to GB
+    print(f"{tag} - Allocated Memory: {allocated_memory:.2f} GB | Reserved Memory: {reserved_memory:.2f} GB")
 
 def loadDataset(data_path, mode):
     """
@@ -130,9 +136,8 @@ def render(model, rays_origin, rays_direction, tn=2, tf=6, samples=192, clear_bg
     #calculate the upper bound of each interval
     ubounds = torch.tensor([tn + i * (tf - tn) / samples for i in range(1, samples + 1)])
     #calculate the distance between each sample
-    t_i = torch.zeros(samples, device=DEVICE)
-    for i in range(samples):
-        t_i[i] = torch.rand(1, device=DEVICE)*((tf - tn) / samples) * (ubounds[i] - lbounds[i]) + lbounds[i]
+    t_i = (torch.rand(1)*((tf - tn) / samples) * (ubounds - lbounds) + lbounds).to(DEVICE)
+
     delta = torch.cat((torch.diff(t_i),torch.tensor([1e10],device=DEVICE)),-1)
     #calculate the sampled point coords on the ray
     sampled_ray_pts = rays_origin.unsqueeze(1) + t_i.unsqueeze(-1)*rays_direction.unsqueeze(1)
@@ -217,26 +222,29 @@ def train(images, poses, camera_info, args):
             loss.backward()
             optimizer.step()
 
+            del batch_o, batch_d, C_r_batch, C_hat_batch 
+
             if i % 1000 == 0:
                 print(f'Iteration: {i}, Train Loss: {loss.item()}, PSNR: {psnr.item()}, Avg time: {time.time()-start}')
                 logger.log(tag='train', epoch=epoch, iter=i, loss=loss.item(), psnr=psnr.item(), time=time.time()-start)
+            if i % 5000 ==0:
                 logger.log(tag='msg', epoch=epoch, iter=i, msg='Performing Validation...')
                 val_loss = val(model, epoch, args, mode='val')
                 if val_loss < min_loss:
                     min_loss = val_loss
                     logger.log(tag='model_loss', loss=min_loss)
-                    # torch.save(model.state_dict(), log_path+'/'+log_dir+'/model/best_model.pt')
                     torch.save(model.state_dict(), os.path.join(args.checkpoint_path,"best_model.pt"))
 
                 logger.log(tag='plot')
 
                 logger.log(tag='model', loss=loss.item())
-                # torch.save(model.state_dict(), log_path+'/'+log_dir+'/model/model_'+str(epoch)+'_'+str(i)+'.pt')
                 torch.save(model.state_dict(), os.path.join(args.checkpoint_path,"model_" + str(epoch) + "_" + str(i) + ".pt"))
+            
+        torch.cuda.empty_cache()
 
         # test the best model
-        if((epoch + 1)%4 == 0):
-            test(args.data_path, mode='test', log_dir=args.logs_path, img_name='image_'+str(epoch)+'_'+str(i)+'.png')
+        if((epoch + 1)%5 == 0):
+            test(args, mode='test', epoch=epoch)
 
         scheduler.step()
     
@@ -273,51 +281,85 @@ def val(model, epoch, args, mode = "val"):
 
     avg_loss /= (num_batches)
 
+    del val_o, val_d, val_C_r, val_C_hat 
+    torch.cuda.empty_cache()
     return avg_loss
 
     
     
-def test(model, epoch, args, mode = "test"):
+def test(args, mode = "test", epoch = 0):
     print("---------Test Mode entered---------")
-
+    # Load the test data
     test_images,test_poses, camera_info = loadDataset(args.data_path, mode)
-    # img_idxs = np.arange(len(images))
-    # rand_idxs = np.random.choice(img_idxs, 4)
-    # val_imgs = images[rand_idxs]
-    # val_poses = poses[rand_idxs]
+    imgs_path=os.path.join(args.logs_path,"Media","Epoch" + str(epoch))
+    if not os.path.exists(imgs_path):
+        os.makedirs(imgs_path)
 
-    test_rays = generateBatch(test_images, test_poses, camera_info)
-    num_batches = int(len(test_rays)/args.n_rays_batch)
-    avg_loss = 0.0
-    count = len(test_rays)
-    # for i in range(num_batches):
-        # test_idxs = np.random.choice(np.arange(len(test_rays)), args.n_rays_batch)
-        # batch = test_rays[test_idxs]
-    while count > 0:
-        if count > args.n_rays_batch:
-            batch = test_rays[len(test_rays) - count:len(test_rays) - count + args.n_rays_batch]
-            count = count - args.n_rays_batch
-        else:
-            batch = test_rays[len(test_rays) - count:]
-            count = 0
-
-        test_start = time.time()
-
+    test_rays = generateBatch(np.expand_dims(test_images[0],axis=0),np.expand_dims(test_poses[0],axis=0),camera_info)
+    model = NeRFmodel(embed_pos_L=10, embed_direction_L=4).to(DEVICE)
+    model.load_state_dict(torch.load(os.path.join(args.checkpoint_path, "best_model.pt")))
+    model.eval()
+    C_hat_list = []
+    psnr_sum = 0.0
+    test_start = time.time()
+    for i in range(0,len(test_rays),args.n_rays_batch):
+        batch = test_rays[i:i+args.n_rays_batch]
         test_o = torch.tensor(batch[:, :3]).to(DEVICE)
         test_d = torch.tensor(batch[:, 3:6]).to(DEVICE)
         test_C_r = torch.tensor(batch[:, 6:]).to(DEVICE)
-
         test_C_hat = render(model, test_o, test_d, args.tn, args.tf, args.n_sample)
         loss, psnr = Loss(test_C_r, test_C_hat)
-        avg_loss += loss.item()
+        C_hat_list.append(test_C_hat.detach().cpu())
+        if psnr > 1e10:
+            continue
+        
+        psnr_sum += psnr.item()
+    
+    H,W,_ = test_images[0].shape
+    img = torch.cat(C_hat_list).numpy().reshape(H,W,3)*255.0
+    
+    ssim = (structural_similarity(img[:, :, 0], test_images[0][:, :, 0]*255.0, data_range=img[:, :, 0].max()-img[:, :, 0].min()) + 
+    structural_similarity(img[:, :, 1], test_images[0][:, :, 1]*255.0, data_range=img[:, :, 1].max()-img[:, :, 1].min()) +
+    structural_similarity(img[:, :, 2], test_images[0][:, :, 2]*255.0, data_range=img[:, :, 2].max()-img[:, :, 2].min()))/3
 
-        if i % 1000 == 0:
-            print(f'Iteration: {i}, Test Loss: {loss.item()}, PSNR: {psnr.item()}, Avg time: {time.time()- test_start}')
-            logger.log(tag='model_loss', loss=loss.item())
+    psnr = psnr_sum * args.n_rays_batch/len(test_rays)
+    print(f'Iteration: {i}, PSNR: {psnr}, Avg time: {time.time()- test_start}')
 
-    avg_loss /= (num_batches)
+    cv2.imwrite(os.path.join(args.logs_path,"Media", "test_.png"),img)
 
-    return avg_loss
+    
+    
+    
+    # for i,img in enumerate(test_images):
+    #     C_hat_list = []
+    #     psnr_sum = 0.0
+    #     test_rays = generateBatch(np.expand_dims(img,axis=0),np.expand_dims(test_poses[i],axis=0),camera_info)
+    #     batches_rays = np.array_split(test_rays, np.ceil(len(test_rays) / args.n_rays_batch))
+    #     for ray in batches_rays: 
+    #         test_start = time.time()
+            
+    #         test_o = torch.tensor(ray[:,:3]).to(DEVICE)
+    #         test_d = torch.tensor(ray[:,3:6]).to(DEVICE)
+    #         test_C_r = torch.tensor(ray[:,6:]).to(DEVICE)            
+    #         test_C_hat = render(model, test_o, test_d, args.tn, args.tf, args.n_sample)
+    #         loss, psnr = Loss(test_C_r, test_C_hat)
+    #         C_hat_list.append(test_C_hat.detach().cpu())
+    #         if psnr > 1e10:
+    #             continue
+    #         psnr_sum += psnr
+    #     img_hat = torch.cat(C_hat_list).numpy().reshape(H,W,3)*255
+
+    #     ssim = (structural_similarity(img_hat[:, :, 0], img[:, :, 0]*255.0, data_range=img_hat[:, :, 0].max()-img_hat[:, :, 0].min()) + 
+    #         structural_similarity(img_hat[:, :, 1], img[:, :, 1]*255.0, data_range=img_hat[:, :, 1].max()-img_hat[:, :, 1].min()) +
+    #         structural_similarity(img_hat[:, :, 2], img[:, :, 2]*255.0, data_range=img_hat[:, :, 2].max()-img_hat[:, :, 2].min()))/3
+        
+    #     del test_o, test_d, test_C_r, test_C_hat 
+    #     torch.cuda.empty_cache()
+    #     # print(f"Testing on image index:{i}, PSNR:{psnr}, SSIM:{ssim}")
+    #     print(f'Iteration: {i}, Test Loss: {loss.item()}, PSNR: {psnr.item()}, Avg time: {time.time()- test_start}')
+        
+    #     cv2.imwrite(os.path.join(args.logs_path,"Media", "test_" + str(i) + ".png"))
+
 
 
 
@@ -345,18 +387,17 @@ def main(args):
         train(images, poses, camera_info, args)
     elif args.mode == 'test':
         print("Start testing")
-        args.load_checkpoint = True
-        test(images, poses, camera_info, args)
+        test(args)
 
 def configParser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_path',default="./Data/lego/",help="dataset path")
-    parser.add_argument('--mode',default='train',help="train | test | val")
+    parser.add_argument('--mode',default='test',help="train | test | val")
     parser.add_argument('--lrate',type=float,default=5e-4,help="training learning rate")
     parser.add_argument('--n_pos_freq',type=int,default=10,help="number of positional encoding frequencies for position")
     parser.add_argument('--n_dirc_freq',type=int,default=4,help="number of positional encoding frequencies for viewing direction")
     parser.add_argument('--n_rays_batch',type=int,default=32*32,help="number of rays per batch")
-    parser.add_argument('--n_sample',type=int,default=256,help="number of sample per ray")
+    parser.add_argument('--n_sample',type=int,default=192,help="number of sample per ray")
     parser.add_argument('--tn', type=int, default=2, help='tn Near plane distance')
     parser.add_argument('--tf', type=int, default=6, help='tf Far plane distance')
     parser.add_argument('--num_epochs', type=int, default=20, help="number of epochs for training")

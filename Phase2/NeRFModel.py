@@ -54,8 +54,8 @@ class NeRFmodel(nn.Module):
         #############################
         # network structure
         #############################
-        encoded_pos       = self.position_encoding(pos,self.embed_pos_L).to(DEVICE)
-        encoded_direction = self.position_encoding(direction,self.embed_direction_L).to(DEVICE)
+        encoded_pos       = self.position_encoding(pos,self.embed_pos_L)
+        encoded_direction = self.position_encoding(direction,self.embed_direction_L)
 
         x = self.input_layer(encoded_pos)
         x = self.relu(x)
