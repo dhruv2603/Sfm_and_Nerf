@@ -3,6 +3,11 @@ import torch.nn as nn
 import numpy as np
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def init_weights(m):
+
+    if isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight)
+        nn.init.zeros_(m.bias)
 
 class NeRFmodel(nn.Module):
     def __init__(self, embed_pos_L=10, embed_direction_L=4,hidden_dim_1 = 256, hidden_dim_2 = 128):
@@ -10,6 +15,12 @@ class NeRFmodel(nn.Module):
         #############################
         # network initialization
         #############################
+        # --- 1. Set the seed for reproducibility ---
+        seed = 10
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
         self.embed_pos_L       = embed_pos_L
         self.embed_direction_L = embed_direction_L
 
@@ -38,6 +49,8 @@ class NeRFmodel(nn.Module):
         self.relu         = nn.functional.relu
         self.sigmoid      = nn.functional.sigmoid
         self.double()
+        # --- 3. Apply custom (deterministic) weight initialization ---
+        self.apply(init_weights)
 
     def position_encoding(self, x, L):
         #############################

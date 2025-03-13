@@ -1,3 +1,6 @@
 */__pycache__/
-*/Checkpoints/
+*/Checkpoints/*0.pt
 */Logs/
+*/*.out
+*/*.sh
+*/requirements.txt

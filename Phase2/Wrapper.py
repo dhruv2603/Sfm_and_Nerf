@@ -117,8 +117,18 @@ def generateBatch(images, poses, camera_info):
     # shape of rays is (N,9)
     rays = np.concatenate((o,d,values),-1)
     return rays
+def fine_samples(norm_weights,args):
+    # calculate the cdf of weights
+    cdf = torch.cumsum(norm_weights, dim=1).squeeze(-1)
+    # get Nf random uniform samples
+    Nf = torch.rand(args.n_sample_fine, cdf.shape[0], device = DEVICE).unsqueeze(2)#.expand(-1,-1,cdf.shape[1])
+    # fix the shape of cdf
+    cdf = cdf.unsqueeze(0).expand(Nf.shape[0], -1, -1).contiguous()
+    # get the indices from where we need to sample
+    indices,_ = torch.sort(torch.searchsorted(cdf,Nf))
+    return indices.squeeze(-1).T
 
-def render(model, rays_origin, rays_direction, tn=2, tf=6, samples=192, clear_bg=True):
+def render(model, model_fine, rays_origin, rays_direction, tn=2, tf=6, samples=192, clear_bg=True):
     """
     Input:
         model: NeRF model
@@ -126,7 +136,7 @@ def render(model, rays_origin, rays_direction, tn=2, tf=6, samples=192, clear_bg
         rays_direction: direction of input rays
         tn: near plane position
         tf: far plane position
-        samples: number of rays in batch
+        samples: number of samples per ray
         clear_bg: bool for clear background
     Outputs:
         rgb values of input rays
@@ -150,16 +160,41 @@ def render(model, rays_origin, rays_direction, tn=2, tf=6, samples=192, clear_bg
     T       = torch.cumprod(1-alpha, dim = 1)
     #calculate the importance weights of each sampled point
     weights = torch.cat((torch.ones(T.shape[0],1,device = T.device),T[:,:-1]),dim=-1).unsqueeze(2)*alpha.unsqueeze(2)
-
+    # normalize the weights
+    norm_weights = weights/torch.sum(weights)
+    # get the indices from where we need to sample for the fine model.
+    indices = fine_samples(norm_weights,args).to(lbounds.device)
+    # get the bounds
+    lbounds_fine = lbounds[indices-1]
+    ubounds_fine = ubounds[indices-1]
+    
+    t_i_fine = torch.mean((torch.rand(1)*((tf - tn) / args.n_sample_fine) * (ubounds_fine - lbounds_fine) + lbounds_fine),dim=0).to(DEVICE)
+    combined_t_i,_ = torch.sort(torch.cat((t_i, t_i_fine)))
+    
+    combined_delta = torch.cat((torch.diff(combined_t_i),torch.tensor([1e10],device=DEVICE)),-1)
+    
+    sampled_ray_pts_combined = rays_origin.unsqueeze(1) + combined_t_i.unsqueeze(-1)*rays_direction.unsqueeze(1)
+    sigma_fine,C_hat_fine = model_fine(sampled_ray_pts_combined.reshape(-1,3), 
+        rays_direction.expand(combined_t_i.shape[0],sampled_ray_pts_combined.shape[0],3).transpose(0,1).reshape(-1,3))
+    
+    C_hat_fine   = C_hat_fine.view(sampled_ray_pts_combined.shape[0],combined_t_i.shape[0],3)
+    sigma_fine   = sigma_fine.view(sampled_ray_pts_combined.shape[0],combined_t_i.shape[0])
+    alpha_fine   = 1 - torch.exp(-sigma_fine*combined_delta)
+    #calculate the transmission values
+    T_fine       = torch.cumprod(1-alpha_fine, dim = 1)
+    #calculate the importance weights of each sampled point
+    weights_fine = torch.cat((torch.ones(T_fine.shape[0],1,device = T_fine.device),T_fine[:,:-1]),dim=-1).unsqueeze(2)*alpha_fine.unsqueeze(2)
     if clear_bg:
         C_r = (weights*C_hat).sum(1)
+        C_r_fine = (weights_fine*C_hat_fine).sum(1)
         weights_sum = weights.sum(dim=[1,2])
-        return C_r + (1 - weights_sum).unsqueeze(-1)
+        weights_fine_sum = weights.sum(dim=[1,2])
+        return C_r + (1 - weights_sum).unsqueeze(-1), C_r_fine + (1 - weights_fine_sum).unsqueeze(-1)
     else:
-        return (weights.unsqueeze(-1)*C_hat).sum(1)
+        return (weights.unsqueeze(-1)*C_hat).sum(1), (weights_fine.unsqueeze(-1)*C_hat_fine).sum(1)
 
 
-def Loss(groundtruth, prediction):
+def Loss(groundtruth, prediction, prediction_fine):
     """
     Input:
         groundtruth: pixel values of image
@@ -168,9 +203,9 @@ def Loss(groundtruth, prediction):
         norm_loss: squared norm between groundtruth and prediction error
         psnr     : peak signal to noise ratio"""
     mse2psnr = lambda x : -10. * torch.log(x).to(DEVICE) / torch.log(torch.Tensor([10.])).to(DEVICE)
-    mse_loss = ((prediction - groundtruth)**2).mean()
+    mse_loss = ((prediction - groundtruth)**2 + (prediction_fine - groundtruth)**2).mean()
     psnr = mse2psnr(mse_loss)
-    norm_loss = ((prediction - groundtruth).norm())**2
+    norm_loss = ((prediction - groundtruth).norm())**2 + ((prediction_fine - groundtruth).norm())**2
     return norm_loss, psnr
 
 
@@ -185,8 +220,10 @@ def train(images, poses, camera_info, args):
     print("-----Training Mode entered -----")
     # Instantiate the model
     model = NeRFmodel(args.n_pos_freq,args.n_dirc_freq).to(DEVICE)
+    model_fine = NeRFmodel(args.n_pos_freq,args.n_dirc_freq).to(DEVICE)
     # define the optimizer
     optimizer = torch.optim.Adam(model.parameters(),lr=args.lrate)
+    optimizer_fine = torch.optim.Adam(model_fine.parameters(),lr=args.lrate)
     # setup the scheduler
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[5,10,15],gamma = 0.5)
     # initialize a large loss value
@@ -200,6 +237,7 @@ def train(images, poses, camera_info, args):
         for i in tqdm(range(num_batches)):
             # model in training mode for gradients
             model.train()
+            model_fine.train()
             # get random indexes
             batch_idxs = np.random.choice(np.arange(len(rays)),args.n_rays_batch)
             # get the batch of rays
@@ -213,32 +251,34 @@ def train(images, poses, camera_info, args):
             # get batch image pixel values
             C_r_batch = torch.tensor(batch_rays[:,6:]).to(DEVICE)
             # predict the image pixel color using NeRFmodel
-            C_hat_batch  = render(model, batch_o, batch_d, args.tn, args.tf, args.n_sample)
+            C_hat_batch, C_hat_fine_batch  = render(model, model_fine, batch_o, batch_d, args.tn, args.tf, args.n_sample)
             # calculate the loss between groundtruth and prediction
-            loss,psnr = Loss(C_r_batch, C_hat_batch)
+            loss,psnr = Loss(C_r_batch, C_hat_batch, C_hat_fine_batch)
             # clear the gradients from before
             optimizer.zero_grad()
+            optimizer_fine.zero_grad()
             # caculate the new gradients
             loss.backward()
             optimizer.step()
+            optimizer_fine.step()
 
-            del batch_o, batch_d, C_r_batch, C_hat_batch 
+            del batch_o, batch_d, C_r_batch, C_hat_batch, C_hat_fine_batch 
 
-            if i % 1000 == 0:
+            if i % 5000 == 0:
                 print(f'Iteration: {i}, Train Loss: {loss.item()}, PSNR: {psnr.item()}, Avg time: {time.time()-start}')
                 logger.log(tag='train', epoch=epoch, iter=i, loss=loss.item(), psnr=psnr.item(), time=time.time()-start)
-            if i % 5000 ==0:
+            if i % 10000 ==0:
                 logger.log(tag='msg', epoch=epoch, iter=i, msg='Performing Validation...')
-                val_loss = val(model, epoch, args, mode='val')
+                val_loss = val(model, model_fine, epoch, args, mode='val')
                 if val_loss < min_loss:
                     min_loss = val_loss
                     logger.log(tag='model_loss', loss=min_loss)
-                    torch.save(model.state_dict(), os.path.join(args.checkpoint_path,"best_model.pt"))
+                    torch.save(model_fine.state_dict(), os.path.join(args.checkpoint_path,"best_model.pt"))
 
                 logger.log(tag='plot')
 
                 logger.log(tag='model', loss=loss.item())
-                torch.save(model.state_dict(), os.path.join(args.checkpoint_path,"model_" + str(epoch) + "_" + str(i) + ".pt"))
+                torch.save(model_fine.state_dict(), os.path.join(args.checkpoint_path,"model_" + str(epoch) + "_" + str(i) + ".pt"))
             
         torch.cuda.empty_cache()
 
@@ -248,7 +288,7 @@ def train(images, poses, camera_info, args):
 
         scheduler.step()
     
-def val(model, epoch, args, mode = "val"):
+def val(model, model_fine, epoch, args, mode = "val"):
     print("---------Validation Mode entered---------")
 
     images,poses,camera_info = loadDataset(args.data_path, mode)
@@ -271,8 +311,8 @@ def val(model, epoch, args, mode = "val"):
         val_d = torch.tensor(batch[:, 3:6]).to(DEVICE)
         val_C_r = torch.tensor(batch[:, 6:]).to(DEVICE)
 
-        val_C_hat = render(model, val_o, val_d, args.tn, args.tf, args.n_sample)
-        loss, psnr = Loss(val_C_r, val_C_hat)
+        val_C_hat, val_C_hat_fine = render(model, model_fine, val_o, val_d, args.tn, args.tf, args.n_sample)
+        loss, psnr = Loss(val_C_r, val_C_hat, val_C_hat_fine)
         avg_loss += loss.item()
 
         if i % 1000 == 0:
@@ -307,15 +347,16 @@ def test(args, mode = "test", epoch = 0):
         test_o = torch.tensor(batch[:, :3]).to(DEVICE)
         test_d = torch.tensor(batch[:, 3:6]).to(DEVICE)
         test_C_r = torch.tensor(batch[:, 6:]).to(DEVICE)
-        test_C_hat = render(model, test_o, test_d, args.tn, args.tf, args.n_sample)
-        loss, psnr = Loss(test_C_r, test_C_hat)
-        C_hat_list.append(test_C_hat.detach().cpu())
+        test_C_hat, test_C_hat_fine = render(model,model, test_o, test_d, args.tn, args.tf, args.n_sample)
+        loss, psnr = Loss(test_C_r, test_C_hat, test_C_hat_fine)
+        C_hat_list.append(test_C_hat_fine.detach().cpu())
         if psnr > 1e10:
             continue
         
         psnr_sum += psnr.item()
     
     H,W,_ = test_images[0].shape
+    print(torch.cat(C_hat_list).numpy().reshape(H,W,3))
     img = torch.cat(C_hat_list).numpy().reshape(H,W,3)*255.0
     
     ssim = (structural_similarity(img[:, :, 0], test_images[0][:, :, 0]*255.0, data_range=img[:, :, 0].max()-img[:, :, 0].min()) + 
@@ -324,8 +365,8 @@ def test(args, mode = "test", epoch = 0):
 
     psnr = psnr_sum * args.n_rays_batch/len(test_rays)
     print(f'Iteration: {i}, PSNR: {psnr}, Avg time: {time.time()- test_start}')
-
-    cv2.imwrite(os.path.join(args.logs_path,"Media", "test_.png"),img)
+    rgb2bgr = cv2.cvtColor(img.astype(np.uint8),cv2.COLOR_RGB2BGR)
+    cv2.imwrite(os.path.join(args.logs_path,"Media", "test_.png"),rgb2bgr)
 
     
     
@@ -396,8 +437,9 @@ def configParser():
     parser.add_argument('--lrate',type=float,default=5e-4,help="training learning rate")
     parser.add_argument('--n_pos_freq',type=int,default=10,help="number of positional encoding frequencies for position")
     parser.add_argument('--n_dirc_freq',type=int,default=4,help="number of positional encoding frequencies for viewing direction")
-    parser.add_argument('--n_rays_batch',type=int,default=32*32,help="number of rays per batch")
-    parser.add_argument('--n_sample',type=int,default=192,help="number of sample per ray")
+    parser.add_argument('--n_rays_batch',type=int,default=256,help="number of rays per batch")
+    parser.add_argument('--n_sample',type=int,default=64,help="number of sample per ray")
+    parser.add_argument('--n_sample_fine',type=int,default=128,help="number of sample per ray")
     parser.add_argument('--tn', type=int, default=2, help='tn Near plane distance')
     parser.add_argument('--tf', type=int, default=6, help='tf Far plane distance')
     parser.add_argument('--num_epochs', type=int, default=20, help="number of epochs for training")
