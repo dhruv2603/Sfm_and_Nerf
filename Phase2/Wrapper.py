@@ -338,10 +338,10 @@ def configParser():
         help="number of positional encoding frequencies for viewing direction",
     )
     parser.add_argument(
-        "--n_rays_batch", type=int, default=32 * 32, help="number of rays per batch"
+        "--n_rays_batch", type=int, default=1024, help="number of rays per batch"
     )
     parser.add_argument(
-        "--n_sample", type=int, default=64, help="number of sample per ray"
+        "--n_sample", type=int, default=100, help="number of sample per ray"
     )
     parser.add_argument("--tn", type=int, default=2, help="tn Near plane distance")
     parser.add_argument("--tf", type=int, default=6, help="tf Far plane distance")
@@ -370,7 +370,7 @@ def configParser():
     parser.add_argument(
         "--position_encoding",
         type=bool,
-        default=True,
+        default=False,
         help="position_encoding",
     )
     return parser

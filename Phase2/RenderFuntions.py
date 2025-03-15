@@ -27,7 +27,7 @@ def PixelToRay(images, pose, K):
             (
                 (u - K[0][2]) / K[0][0],
                 -(v - H / 2) / K[1][1],
-                -np.ones_like(u) * K[0][0],
+                -np.ones_like(u),
             ),
             axis=-1,
         )
@@ -96,9 +96,10 @@ def render(model, rays_origin, rays_direction, tn=2, tf=6, samples=192, clear_bg
 
     delta = torch.cat((torch.diff(t_i), torch.tensor([1e10], device=DEVICE)))
     # calculate the sampled point coords on the ray
-    sampled_ray_pts = rays_origin.unsqueeze(1) + t_i.unsqueeze(
+    sampled_ray_pts = rays_origin.unsqueeze(1) + t_i.unsqueeze(0).unsqueeze(
         -1
     ) * rays_direction.unsqueeze(1)
+
     # get the colour and opacity values for the points
     sigma, C_hat = model(
         sampled_ray_pts.reshape(-1, 3),
@@ -112,13 +113,6 @@ def render(model, rays_origin, rays_direction, tn=2, tf=6, samples=192, clear_bg
 
     alpha = 1 - torch.exp(-sigma * delta.unsqueeze(0))
 
-    # calculate the transmission values
-    # T = torch.cumprod(1 - alpha, dim=1)
-
-    # calculate the importance weights of each sampled point
-    # weights = torch.cat(
-    # (torch.ones(T.shape[0], 1, device=T.device), T[:, :-1]), dim=-1
-    # ).unsqueeze(2) * alpha.unsqueeze(2)
     weights = compute_accumulated_transmittance(1 - alpha) * alpha
 
     if clear_bg:
