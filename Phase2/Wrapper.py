@@ -53,7 +53,9 @@ def train(images, poses, camera_info, args):
     """
     print("-----Training Mode entered -----")
     # Instantiate the model
-    model = NeRFmodel(args.n_pos_freq, args.n_dirc_freq).to(DEVICE)
+    model = NeRFmodel(
+        args.n_pos_freq, args.n_dirc_freq, flag_encoding=args.position_encoding
+    ).to(DEVICE)
     # define the optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lrate)
     # setup the scheduler
@@ -204,7 +206,9 @@ def test(args, mode="test", epoch=0):
         np.expand_dims(test_poses[0], axis=0),
         camera_info,
     )
-    model = NeRFmodel(embed_pos_L=10, embed_direction_L=4).to(DEVICE)
+    model = NeRFmodel(
+        embed_pos_L=10, embed_direction_L=4, flag_encoding=args.position_encoding
+    ).to(DEVICE)
     model.load_state_dict(
         torch.load(os.path.join(args.checkpoint_path, "best_model.pt"))
     )
@@ -355,6 +359,12 @@ def configParser():
     )
     parser.add_argument(
         "--images_path", default="./image/", help="folder to store images"
+    )
+    parser.add_argument(
+        "--position_encoding",
+        type=bool,
+        default=True,
+        help="position_encoding",
     )
     return parser
 

@@ -5,9 +5,20 @@ import numpy as np
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def init_weights(m):
+    if isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight)
+        nn.init.zeros_(m.bias)
+
+
 class NeRFmodel(nn.Module):
     def __init__(
-        self, embed_pos_L=10, embed_direction_L=4, hidden_dim_1=256, hidden_dim_2=128
+        self,
+        embed_pos_L=10,
+        embed_direction_L=4,
+        hidden_dim_1=256,
+        hidden_dim_2=128,
+        flag_encoding=True,
     ):
         super(NeRFmodel, self).__init__()
         #############################
@@ -15,9 +26,22 @@ class NeRFmodel(nn.Module):
         #############################
         self.embed_pos_L = embed_pos_L
         self.embed_direction_L = embed_direction_L
+        self.flag_encoding = flag_encoding
 
-        pos_len = 3 + self.embed_pos_L * 3 * 2
-        dir_len = 3 + self.embed_direction_L * 3 * 2
+        if self.flag_encoding:
+            pos_len = 3 + self.embed_pos_L * 3 * 2
+            dir_len = 3 + self.embed_direction_L * 3 * 2
+            print("With Encoding")
+        else:
+            pos_len = 3
+            dir_len = 3
+            print("No Encoding")
+
+        seed = 1000
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+
         self.input_layer = nn.Linear(pos_len, hidden_dim_1)
         self.block_1 = nn.Sequential(
             nn.Linear(hidden_dim_1, hidden_dim_1),
@@ -41,15 +65,19 @@ class NeRFmodel(nn.Module):
         self.relu = nn.functional.relu
         self.sigmoid = nn.functional.sigmoid
         self.double()
+        self.apply(init_weights)
 
-    def position_encoding(self, x, L):
+    def position_encoding(self, x, L, flag):
         #############################
         # Implement position encoding here
         #############################
-        y = [x]
-        for i in range(L):
-            y.append(torch.sin(x * 2**i))
-            y.append(torch.cos(x * 2**i))
+        if flag:
+            y = [x]
+            for i in range(L):
+                y.append(torch.sin(x * 2**i))
+                y.append(torch.cos(x * 2**i))
+        else:
+            y = [x]
 
         return torch.cat(y, dim=1)
 
@@ -57,8 +85,10 @@ class NeRFmodel(nn.Module):
         #############################
         # network structure
         #############################
-        encoded_pos = self.position_encoding(pos, self.embed_pos_L)
-        encoded_direction = self.position_encoding(direction, self.embed_direction_L)
+        encoded_pos = self.position_encoding(pos, self.embed_pos_L, self.flag_encoding)
+        encoded_direction = self.position_encoding(
+            direction, self.embed_direction_L, self.flag_encoding
+        )
 
         x = self.input_layer(encoded_pos)
         x = self.relu(x)
