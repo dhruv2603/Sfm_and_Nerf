@@ -8,7 +8,7 @@
 #SBATCH -C A30
 #SBATCH -t 24:00:00      # walltime (hh:mm:ss)
 #SBATCH --mem=64G        # memory per node
-#SBATCH --job-name="P1-Group8"
+#SBATCH --job-name="P2-Group8-Lego-Nofine"
 
 
 # (1) Source your bashrc so conda is available

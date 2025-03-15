@@ -320,7 +320,7 @@ def main(args):
 def configParser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", default="./Data", help="dataset path")
-    parser.add_argument("--object", default="lego", help="dataset path")
+    parser.add_argument("--object", default="ship", help="dataset path")
     parser.add_argument("--mode", default="train", help="train | test | val")
     parser.add_argument(
         "--lrate", type=float, default=5e-4, help="training learning rate"
