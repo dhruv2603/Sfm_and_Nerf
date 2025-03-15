@@ -258,8 +258,15 @@ def test(args, mode="test", epoch=0):
 
 def main(args):
     # Make directories
-    logs = os.path.join(args.logs_path, args.object + "/")
-    checkpoint = os.path.join(args.checkpoint_path, args.object + "/")
+    if args.position_encoding:
+        logs = os.path.join(args.logs_path, args.object + "_Encoding" + "/")
+        checkpoint = os.path.join(args.checkpoint_path, args.object + "_Encoding" + "/")
+    else:
+        logs = os.path.join(args.logs_path, args.object + "_NoEncoding" + "/")
+        checkpoint = os.path.join(
+            args.checkpoint_path, args.object + "_NoEncoding" + "/"
+        )
+
     if not os.path.exists(logs):
         os.makedirs(logs)
 
