@@ -8,7 +8,7 @@
 #SBATCH -C A100
 #SBATCH -t 24:00:00      # walltime (hh:mm:ss)
 #SBATCH --mem=64G        # memory per node
-#SBATCH --job-name="P2-Group8-Ship-Nofine"
+#SBATCH --job-name="P2-Group8-Ship-Nofine-NoEncoding"
 
 
 # (1) Source your bashrc so conda is available
