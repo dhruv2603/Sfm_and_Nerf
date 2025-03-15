@@ -27,7 +27,7 @@ def PixelToRay(images, pose, K):
             (
                 (u - K[0][2]) / K[0][0],
                 -(v - H / 2) / K[1][1],
-                -np.ones_like(u),
+                -np.ones_like(u) * K[0][0],
             ),
             axis=-1,
         )
@@ -59,6 +59,15 @@ def generateBatch(images, poses, camera_info):
     return rays
 
 
+def compute_accumulated_transmittance(betas):
+    accumulated_transmittance = torch.cumprod(betas, dim=1)
+    ones_column = torch.ones(
+        accumulated_transmittance.shape[0], 1, device=accumulated_transmittance.device
+    )
+    result = torch.cat((ones_column, accumulated_transmittance[:, :-1]), dim=1)
+    return result
+
+
 def render(model, rays_origin, rays_direction, tn=2, tf=6, samples=192, clear_bg=True):
     """
     Input:
@@ -85,7 +94,7 @@ def render(model, rays_origin, rays_direction, tn=2, tf=6, samples=192, clear_bg
         DEVICE
     )
 
-    delta = torch.cat((torch.diff(t_i), torch.tensor([1e10], device=DEVICE)), -1)
+    delta = torch.cat((torch.diff(t_i), torch.tensor([1e10], device=DEVICE)))
     # calculate the sampled point coords on the ray
     sampled_ray_pts = rays_origin.unsqueeze(1) + t_i.unsqueeze(
         -1
@@ -97,21 +106,24 @@ def render(model, rays_origin, rays_direction, tn=2, tf=6, samples=192, clear_bg
         .transpose(0, 1)
         .reshape(-1, 3),
     )
+
     C_hat = C_hat.view(sampled_ray_pts.shape[0], samples, 3)
     sigma = sigma.view(sampled_ray_pts.shape[0], samples)
-    alpha = 1 - torch.exp(-sigma * delta)
+
+    alpha = 1 - torch.exp(-sigma * delta.unsqueeze(0))
 
     # calculate the transmission values
-    T = torch.cumprod(1 - alpha, dim=1)
+    # T = torch.cumprod(1 - alpha, dim=1)
 
     # calculate the importance weights of each sampled point
-    weights = torch.cat(
-        (torch.ones(T.shape[0], 1, device=T.device), T[:, :-1]), dim=-1
-    ).unsqueeze(2) * alpha.unsqueeze(2)
+    # weights = torch.cat(
+    # (torch.ones(T.shape[0], 1, device=T.device), T[:, :-1]), dim=-1
+    # ).unsqueeze(2) * alpha.unsqueeze(2)
+    weights = compute_accumulated_transmittance(1 - alpha) * alpha
 
     if clear_bg:
-        C_r = (weights * C_hat).sum(1)
-        weights_sum = weights.sum(dim=[1, 2])
-        return C_r + (1 - weights_sum).unsqueeze(-1)
+        C_r = (weights.unsqueeze(-1) * C_hat).sum(1)
+        weights_sum = weights.sum(-1)
+        return C_r + 1 - weights_sum.unsqueeze(-1)
     else:
         return (weights.unsqueeze(-1) * C_hat).sum(1)

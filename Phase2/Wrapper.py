@@ -146,6 +146,7 @@ def train(images, poses, camera_info, args):
 def val(model, epoch, args, mode="val"):
     print("---------Validation Mode entered---------")
 
+    print(args.data_path)
     images, poses, camera_info = loadDataset(args.data_path, mode)
     img_idxs = np.arange(len(images))
     rand_idxs = np.random.choice(img_idxs, 4)
@@ -253,24 +254,32 @@ def test(args, mode="test", epoch=0):
 
 def main(args):
     # Make directories
-    if not os.path.exists(args.logs_path):
-        os.makedirs(args.logs_path)
-    if not os.path.exists(args.checkpoint_path):
-        os.makedirs(args.checkpoint_path)
+    logs = os.path.join(args.logs_path, args.object + "/")
+    checkpoint = os.path.join(args.checkpoint_path, args.object + "/")
+    if not os.path.exists(logs):
+        os.makedirs(logs)
+
+    if not os.path.exists(checkpoint):
+        os.makedirs(checkpoint)
+
     # Check CUDA
     print("Running on Deivce: ", DEVICE)
     # load data
     print("Loading data...")
     print("Check arguments")
-    images, poses, camera_info = loadDataset(args.data_path, args.mode)
-    # initialize logger
+
+    # Path with object name
+    path = os.path.join(args.data_path, args.object + "/")
+    images, poses, camera_info = loadDataset(path, args.mode)
+
+    #    # initialize logger
 
     global logger
-    logger = Logger(args.logs_path)
+    logger = Logger(logs)
     logger.log(
         tag="args",
-        data_path=args.data_path,
-        log_path=args.logs_path,
+        data_path=path,
+        log_path=logs,
         mode=args.mode,
         lrate=args.lrate,
         positional_encodings=args.n_pos_freq,
@@ -280,8 +289,13 @@ def main(args):
         near_plane_dist=args.tn,
         far_plane_dist=args.tf,
         epochs=args.num_epochs,
-        ckpts_path=args.checkpoint_path,
+        ckpts_path=checkpoint,
     )
+
+    # New arguments
+    args.logs_path = logs
+    args.data_path = path
+    args.checkpoint_path = checkpoint
 
     # Section to train or test the Nerf
     if args.mode == "train":
@@ -294,7 +308,8 @@ def main(args):
 
 def configParser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_path", default="./Data/lego/", help="dataset path")
+    parser.add_argument("--data_path", default="./Data", help="dataset path")
+    parser.add_argument("--object", default="lego", help="dataset path")
     parser.add_argument("--mode", default="train", help="train | test | val")
     parser.add_argument(
         "--lrate", type=float, default=5e-4, help="training learning rate"
