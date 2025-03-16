@@ -64,15 +64,13 @@ def train(images, poses, camera_info, args):
     )
     # initialize a large loss value
     min_loss = float("inf")
-    print(images.shape)
-    print(poses.shape)
     # generate all rays
     rays_total = generateBatch(images, poses, camera_info)
     rays_warm = generateBatch(images[:, 100:300, 100:300, :], poses, camera_info)
     # calculate number of batches
 
     for epoch in tqdm(range(args.num_epochs)):
-        if epoch == 0:
+        if epoch <= 2:
             rays = rays_warm
         else:
             rays = rays_total
@@ -369,7 +367,6 @@ def main(args):
     # Path with object name
     path = os.path.join(args.data_path, args.object + "/")
     images, poses, camera_info = loadDataset(path, args.mode)
-    print(poses[0, :, :])
 
     #    # initialize logger
 
@@ -396,6 +393,12 @@ def main(args):
     args.data_path = path
     args.checkpoint_path = checkpoint
 
+    print(args.mode)
+    print(args.object)
+    print(args.n_pos_freq)
+    print(args.n_dirc_freq)
+    print(args.position_encoding)
+
     # Section to train or test the Nerf
     if args.mode == "train":
         print("Start training")
@@ -412,7 +415,7 @@ def configParser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", default="./Data", help="dataset path")
     parser.add_argument("--object", default="ship", help="dataset path")
-    parser.add_argument("--mode", default="gif", help="train | test | val | gif")
+    parser.add_argument("--mode", default="train", help="train | test | val | gif")
     parser.add_argument(
         "--lrate", type=float, default=5e-4, help="training learning rate"
     )
@@ -461,7 +464,7 @@ def configParser():
     parser.add_argument(
         "--position_encoding",
         type=bool,
-        default=False,
+        default=True,
         help="position_encoding",
     )
     return parser
