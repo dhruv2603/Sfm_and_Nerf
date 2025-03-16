@@ -27,8 +27,9 @@ class NeRFmodel(nn.Module):
         self.embed_pos_L = embed_pos_L
         self.embed_direction_L = embed_direction_L
         self.flag_encoding = flag_encoding
+        print(self.flag_encoding)
 
-        if self.flag_encoding:
+        if self.flag_encoding == True:
             pos_len = 3 + self.embed_pos_L * 3 * 2
             dir_len = 3 + self.embed_direction_L * 3 * 2
             print("With Encoding")
@@ -71,16 +72,18 @@ class NeRFmodel(nn.Module):
         #############################
         # Implement position encoding here
         #############################
-        if flag:
+        if flag == True:
             y = [x]
             for i in range(L):
                 y.append(torch.sin(x * 2**i))
                 y.append(torch.cos(x * 2**i))
+            print("Encoding")
         else:
             y = [x]
             for i in range(L):
                 y.append(torch.sin(x * 2**i))
                 y.append(torch.cos(x * 2**i))
+            print("NoEncoding")
 
         return torch.cat(y, dim=1)
 
