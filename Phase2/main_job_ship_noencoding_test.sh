@@ -17,4 +17,4 @@ source /home/lfrecalde/anaconda3/etc/profile.d/conda.sh
 conda activate cv_cuda
 
 # (3) Run your Python code
-python Wrapper.py --mode "test" --object "ship" --n_pos_freq 3 --n_dirc_freq 2 --position_encoding True
+python Wrapper.py --mode "test" --object "ship" --n_pos_freq 3 --n_dirc_freq 2 --position_encoding False
