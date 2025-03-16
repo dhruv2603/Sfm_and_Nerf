@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #SBATCH -A gli7
-#SBATCH -p short       # partition name
+#SBATCH -p long       # partition name
 #SBATCH -N 1             # number of nodes
 #SBATCH -c 32            # number of CPU cores
 #SBATCH --gres=gpu:2     # number of GPUs
