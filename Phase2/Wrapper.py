@@ -81,7 +81,7 @@ def train(images, poses, camera_info, args):
     # calculate number of batches
 
     for epoch in tqdm(range(args.num_epochs)):
-        if epoch <= 2:
+        if epoch <= 0:
             rays = rays_warm
         else:
             rays = rays_total
@@ -155,7 +155,7 @@ def train(images, poses, camera_info, args):
         torch.cuda.empty_cache()
 
         # test the best model
-        if (epoch + 1) % 5 == 0:
+        if (epoch + 1) % 2 == 0:
             test(args, mode="test", epoch=epoch)
 
         scheduler.step()
@@ -224,7 +224,9 @@ def test(args, mode="test", epoch=0):
     )
 
     model = NeRFmodel(
-        embed_pos_L=10, embed_direction_L=4, flag_encoding=args.position_encoding
+        embed_pos_L=args.n_pos_freq,
+        embed_direction_L=args.n_dirc_freq,
+        flag_encoding=args.position_encoding,
     ).to(DEVICE)
     model.load_state_dict(
         torch.load(os.path.join(args.checkpoint_path, "best_model.pt"))
@@ -294,19 +296,34 @@ def compute_image(image_number, mode, model):
     original_img = test_rays[:, 6:] * 255.0
     original_img = original_img.reshape(H, W, 3)
 
-    for i in range(0, len(test_rays), args.n_rays_batch):
-        batch = test_rays[i : i + args.n_rays_batch]
-        test_o = torch.tensor(batch[:, :3]).to(DEVICE)
-        test_d = torch.tensor(batch[:, 3:6]).to(DEVICE)
-        test_C_r = torch.tensor(batch[:, 6:]).to(DEVICE)
-        test_C_hat = render(model, test_o, test_d, args.tn, args.tf, args.n_sample)
-        loss, psnr = Loss(test_C_r, test_C_hat)
-        C_hat_list.append(test_C_hat.detach().cpu())
-        del test_o, test_d, test_C_r, test_C_hat
-        if psnr > 1e10:
-            continue
+    with torch.no_grad():
+        for i in range(0, len(test_rays), args.n_rays_batch):
+            batch = test_rays[i : i + args.n_rays_batch]
 
-        psnr_sum += psnr.item()
+            # Convert slices to tensors and move to GPU
+            test_o = torch.tensor(batch[:, :3]).to(DEVICE)
+            test_d = torch.tensor(batch[:, 3:6]).to(DEVICE)
+            test_C_r = torch.tensor(batch[:, 6:]).to(DEVICE)
+
+            # Render output and compute loss/psnr
+            test_C_hat = render(model, test_o, test_d, args.tn, args.tf, args.n_sample)
+            loss, psnr = Loss(test_C_r, test_C_hat)
+
+            # Move result to CPU and append to list
+            C_hat_list.append(test_C_hat.detach().cpu())
+
+            # If psnr is too high, skip accumulation
+            if psnr > 1e10:
+                # Clean up GPU memory for this iteration
+                del test_o, test_d, test_C_r, test_C_hat, loss, psnr
+                torch.cuda.empty_cache()
+                continue
+
+            psnr_sum += psnr.item()
+
+            # Clean up after each iteration
+            del test_o, test_d, test_C_r, test_C_hat, loss, psnr
+            torch.cuda.empty_cache()
 
     img = torch.cat(C_hat_list).numpy().reshape(H, W, 3) * 255.0
     image_bgr = img[..., ::-1]
@@ -334,14 +351,16 @@ def compute_image(image_number, mode, model):
 def gif_test(args, mode="test"):
 
     model = NeRFmodel(
-        embed_pos_L=10, embed_direction_L=4, flag_encoding=args.position_encoding
+        embed_pos_L=args.n_pos_freq,
+        embed_direction_L=args.n_dirc_freq,
+        flag_encoding=args.position_encoding,
     ).to(DEVICE)
     model.load_state_dict(
         torch.load(os.path.join(args.checkpoint_path, "best_model.pt"))
     )
     model.eval()
     images = []
-    for k in range(0, 100):
+    for k in range(0, 30):
         print("Computing Image", k)
         images.append(compute_image(k, mode, model))
     images = np.array(images)
