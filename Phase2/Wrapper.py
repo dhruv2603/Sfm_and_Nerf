@@ -463,7 +463,6 @@ def configParser():
     )
     parser.add_argument(
         "--position_encoding",
-        type=bool,
         default=True,
         help="position_encoding",
     )
