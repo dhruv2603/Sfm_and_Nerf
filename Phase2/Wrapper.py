@@ -214,7 +214,9 @@ def test(args, mode="test", epoch=0):
         camera_info,
     )
 
-    model = NeRFmodel(embed_pos_L=10, embed_direction_L=4).to(DEVICE)
+    model = NeRFmodel(
+        embed_pos_L=10, embed_direction_L=4, flag_encoding=args.position_encoding
+    ).to(DEVICE)
     model.load_state_dict(
         torch.load(os.path.join(args.checkpoint_path, "best_model.pt"))
     )
@@ -322,7 +324,9 @@ def compute_image(image_number, mode, model):
 
 def gif_test(args, mode="test"):
 
-    model = NeRFmodel(embed_pos_L=10, embed_direction_L=4).to(DEVICE)
+    model = NeRFmodel(
+        embed_pos_L=10, embed_direction_L=4, flag_encoding=args.position_encoding
+    ).to(DEVICE)
     model.load_state_dict(
         torch.load(os.path.join(args.checkpoint_path, "best_model.pt"))
     )
@@ -457,7 +461,7 @@ def configParser():
     parser.add_argument(
         "--position_encoding",
         type=bool,
-        default=True,
+        default=False,
         help="position_encoding",
     )
     return parser
