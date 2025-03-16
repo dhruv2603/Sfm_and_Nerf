@@ -32,11 +32,9 @@ class NeRFmodel(nn.Module):
         if self.flag_encoding == True:
             pos_len = 3 + self.embed_pos_L * 3 * 2
             dir_len = 3 + self.embed_direction_L * 3 * 2
-            print("With Encoding")
         else:
             pos_len = 3 + self.embed_pos_L * 3 * 2
             dir_len = 3 + self.embed_direction_L * 3 * 2
-            print("No Encoding")
 
         seed = 1000
         torch.manual_seed(seed)
@@ -77,13 +75,11 @@ class NeRFmodel(nn.Module):
             for i in range(L):
                 y.append(torch.sin(x * 2**i))
                 y.append(torch.cos(x * 2**i))
-            print("Encoding")
         else:
             y = [x]
             for i in range(L):
                 y.append(torch.sin(x * 2**i))
                 y.append(torch.cos(x * 2**i))
-            print("NoEncoding")
 
         return torch.cat(y, dim=1)
 
