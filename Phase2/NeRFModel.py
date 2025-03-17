@@ -16,7 +16,7 @@ class NeRFmodel(nn.Module):
         # network initialization
         #############################
         # --- 1. Set the seed for reproducibility ---
-        seed = 10
+        seed = 1000
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
@@ -78,6 +78,7 @@ class NeRFmodel(nn.Module):
         x = self.block_2(x)
         x = self.sigma_layer(x)
         sigma = x[:,0]
+        # print("Sigma: ", sigma)
         hidden_features = x[:,1:]
         sigma = self.relu(sigma)
         x = self.dir_layer(torch.cat((hidden_features,encoded_direction),-1))
