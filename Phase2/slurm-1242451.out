@@ -1,0 +1,16 @@
+/home/lfrecalde/anaconda3/envs/cv_cuda/lib/python3.9/site-packages/torch/cuda/__init__.py:129: UserWarning: CUDA initialization: CUDA unknown error - this may be due to an incorrectly set up environment, e.g. changing env variable CUDA_VISIBLE_DEVICES after program start. Setting the available devices to be zero. (Triggered internally at /opt/conda/conda-bld/pytorch_1729647327249/work/c10/cuda/CUDAFunctions.cpp:108.)
+  return torch._C._cuda_getDeviceCount() > 0
+Running on Deivce:  cpu
+Loading data...
+Check arguments
+[[-4.6590585e-02  1.7529652e-01 -9.8341262e-01 -3.9642630e+00]
+ [-9.9891406e-01 -8.1760464e-03  4.5867577e-02  1.8489811e-01]
+ [-9.3132257e-10  9.8448169e-01  1.7548709e-01  7.0741105e-01]
+ [ 0.0000000e+00  0.0000000e+00  0.0000000e+00  1.0000000e+00]]
+Start training
+-----Training Mode entered -----
+With Encoding
+(100, 400, 400, 3)
+(100, 4, 4)
+  0%|          | 0/20 [00:00<?, ?it/s]
+  0%|          | 0/3906 [00:00<?, ?it/s][Aslurmstepd: error: *** JOB 1242451 ON gpu-4-14 CANCELLED AT 2025-03-15T23:48:07 ***

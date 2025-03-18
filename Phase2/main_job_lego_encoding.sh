@@ -17,4 +17,4 @@ source /home/lfrecalde/anaconda3/etc/profile.d/conda.sh
 conda activate cv_cuda
 
 # (3) Run your Python code
-python Wrapper.py --mode "train" --object "lego" --n_pos_freq 10 --n_dirc_freq 4 --position_encoding True
+python Wrapper.py --mode "train" --object "lego" --n_pos_freq 14 --n_dirc_freq 8 --position_encoding True
