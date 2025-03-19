@@ -56,11 +56,19 @@ def loadDataset(data_path, mode):
     c_x = width / 2
     c_y = height / 2
     camera_matrix = np.array([[f_x, 0, c_x], [0, f_y, c_y], [0, 0, 1]])
+    print(camera_matrix)
 
     # Extract the camera poses
+    theta = -np.deg2rad(90)
+    R_x = np.array([[1, 0, 0], [0.0, np.cos(theta), -np.sin(theta)], [0, np.sin(theta), np.cos(theta)]])
     pose = []
+
     for frame in data["frames"]:
-        transform_matrix = np.array(frame["transform_matrix"])
+        homogeneous = np.array(frame["transform_matrix"])
+        #rotation = homogeneous[0:3, 0:3]
+        #rotation_new = rotation @ R_x
+        #homogeneous[0:3, 0:3] = rotation_new
+        transform_matrix = homogeneous
         pose.append(transform_matrix)
 
     camera_info = {"width": width, "height": height, "camera_matrix": camera_matrix}

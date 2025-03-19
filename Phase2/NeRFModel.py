@@ -36,7 +36,7 @@ class NeRFmodel(nn.Module):
             pos_len = 3 + self.embed_pos_L * 3 * 2
             dir_len = 3 + self.embed_direction_L * 3 * 2
 
-        seed = 1000
+        seed = 500
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)

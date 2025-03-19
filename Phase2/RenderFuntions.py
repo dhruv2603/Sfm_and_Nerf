@@ -68,7 +68,7 @@ def compute_accumulated_transmittance(betas):
     return result
 
 
-def render(model, rays_origin, rays_direction, tn=2, tf=6, samples=192, clear_bg=True):
+def render(model, rays_origin, rays_direction, tn=0.5, tf=5, samples=192, clear_bg=True):
     """
     Input:
         model: NeRF model

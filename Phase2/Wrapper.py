@@ -81,10 +81,10 @@ def train(images, poses, camera_info, args):
     # calculate number of batches
 
     for epoch in tqdm(range(args.num_epochs)):
-        if epoch <= 0:
-            rays = rays_warm
-        else:
-            rays = rays_total
+        #if epoch <= 0:
+            #rays = rays_warm
+        #else:
+        rays = rays_total
 
         num_batches = int(len(rays) / args.n_rays_batch)
         for i in tqdm(range(num_batches)):
